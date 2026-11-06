@@ -5,7 +5,7 @@ repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 cd "$repo_dir"
 
 binary="$repo_dir/bin/msgbrowse"
-config="${MSGBROWSE_RUN_CONFIG:-/Users/drew_wilkins/Documents/msgbrowse-stage3-20261106-2joh7o5l/restore-combined.yaml}"
+config="${MSGBROWSE_RUN_CONFIG:-/Users/drew_wilkins/Documents/Messages/config.yaml}"
 
 if [[ ! -f "$config" ]]; then
   printf 'msgbrowse_run: config file not found: %s\n' "$config" >&2
