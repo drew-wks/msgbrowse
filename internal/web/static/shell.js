@@ -105,9 +105,37 @@
     "scroll",
     function (e) {
       if (e.target !== document) window.dispatchEvent(new Event("scroll"));
+      if (e.target && e.target.id === "main-content") syncJumpBottom();
     },
     true
   );
+
+  function syncJumpBottom() {
+    var main = document.getElementById("main-content");
+    var button = main && main.querySelector("[data-jump-bottom]");
+    if (!button) return;
+    var hasMoreBelow = main.scrollTop + main.clientHeight < main.scrollHeight - 24;
+    button.hidden = !hasMoreBelow;
+    button.setAttribute("aria-hidden", hasMoreBelow ? "false" : "true");
+  }
+
+  document.addEventListener("click", function (e) {
+    var button = e.target.closest && e.target.closest("[data-jump-bottom]");
+    if (!button) return;
+    var main = document.getElementById("main-content");
+    if (!main) return;
+    var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    main.scrollTo({ top: main.scrollHeight, behavior: reducedMotion ? "auto" : "smooth" });
+  });
+  document.addEventListener("htmx:afterSettle", syncJumpBottom);
+  document.addEventListener("htmx:historyRestore", syncJumpBottom);
+  window.addEventListener("resize", syncJumpBottom);
+  window.addEventListener("load", syncJumpBottom);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", syncJumpBottom);
+  } else {
+    syncJumpBottom();
+  }
 
   function scrollKey(path) {
     return (

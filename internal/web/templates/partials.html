@@ -297,7 +297,7 @@
            the row's own #m{ID} anchor) is otherwise out of reach. */}}
     {{- $msgID := .ID}}
     {{- $preview := .PreviewPath}}
-  <div class="msg-row{{if .IsOwner}} msg-row-me{{end}}{{if not $showSender}} msg-row-grouped{{end}}{{if and $.HighlightID (eq .ID $.HighlightID)}} target{{end}}" id="m{{.ID}}">
+  <div class="msg-row{{if .IsOwner}} msg-row-me{{end}}{{if .PreviewPath}} msg-row-preview{{end}}{{if not $showSender}} msg-row-grouped{{end}}{{if and $.HighlightID (eq .ID $.HighlightID)}} target{{end}}" id="m{{.ID}}">
     <time class="msg-time font-mono" datetime="{{.TS}}" title="{{.TS}}">{{clockTime .TS}}</time>
     <span class="msg-rail {{if .IsOwner}}rail-me{{else}}{{avatarColor .Sender}}{{end}}" aria-hidden="true"></span>
     <div class="msg-body">

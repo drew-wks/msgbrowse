@@ -992,7 +992,8 @@ body {
  * ADR-0012). Driven by the slate theme variables so slate-light restyles too.
  * The chat-bubble transcript is gone; this is the dense log: a left mono
  * timestamp gutter, a 3px sender-colored rail (accent for "Me"), and a 640px
- * content column with grouped sender names, day separators, and centered
+ * content column. My rows align to the right; others stay on the left. Grouped
+ * sender names, day separators, and centered
  * system events. CSP-safe (no inline styles); the rail color is the avatar
  * palette utility (bg-*-500), already @source-inline safelisted above.
  * ========================================================================= */
@@ -1111,7 +1112,7 @@ a.meta-chip:hover {
 
 /* --- Transcript reading column ------------------------------------------- */
 .transcript {
-  max-width: calc(76px + 3px + 640px + 1.5rem);
+  width: 100%;
 }
 
 /* --- Day separator ------------------------------------------------------- */
@@ -1180,6 +1181,8 @@ a.meta-chip:hover {
   display: grid;
   grid-template-columns: 76px 3px minmax(0, 640px);
   column-gap: 0.75rem;
+  width: 100%;
+  max-width: calc(76px + 3px + 640px + 1.5rem);
   align-items: start;
   padding: 0.2rem 0.5rem 0.2rem 0;
   border-left: 2px solid transparent; /* reserve the accent edge for "Me" rows */
@@ -1234,13 +1237,71 @@ a.meta-chip:hover {
   line-height: 1.55;
   color: var(--color-base-content);
 }
-/* "Me" rows: faint accent wash + accent left edge. */
+/* My rows use the opposite edge of the reading area, with content aligned
+   toward that edge. The grid order changes visually without reversing the
+   text or keyboard order in the DOM. */
 .msg-row-me {
+  margin-left: auto;
+  grid-template-columns: minmax(0, 640px) 3px 76px;
+  text-align: right;
   background: rgba(111, 147, 214, 0.05);
-  border-left-color: var(--color-primary);
+  border-right: 2px solid var(--color-primary);
+  border-radius: 6px 0 0 6px;
+}
+.msg-row-me .msg-time {
+  grid-column: 3;
+  justify-self: start;
+}
+.msg-row-me .msg-rail {
+  grid-column: 2;
+}
+.msg-row-me .msg-body {
+  grid-column: 1;
+}
+.msg-row-me .msg-attachments,
+.msg-row-me .msg-links,
+.msg-row-me .msg-reactions {
+  justify-content: flex-end;
+}
+/* A retained link card gets room for half the viewport without widening every
+   ordinary text message. The copy button shares that width with the image. */
+.msg-row-preview {
+  max-width: calc(76px + 3px + 50vw + 1.5rem);
+  grid-template-columns: 76px 3px minmax(0, 50vw);
+}
+.msg-row-preview.msg-row-me {
+  grid-template-columns: minmax(0, 50vw) 3px 76px;
 }
 [data-theme="slate-light"] .msg-row-me {
   background: color-mix(in oklab, var(--color-primary) 7%, transparent);
+}
+
+/* Conversation-only control; #main-content is the transcript scrollport. */
+.jump-bottom-btn {
+  position: fixed;
+  right: clamp(1rem, 3vw, 2rem);
+  bottom: clamp(1rem, 3vw, 2rem);
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid var(--color-neutral);
+  border-radius: 50%;
+  background: var(--color-base-300);
+  color: var(--color-base-content);
+  box-shadow: 0 3px 12px color-mix(in oklab, black 30%, transparent);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.jump-bottom-btn[hidden] {
+  display: none;
+}
+.jump-bottom-btn:hover,
+.jump-bottom-btn:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 /* --- Attachments / links inside a row ------------------------------------ */
@@ -1330,20 +1391,23 @@ a.meta-chip:hover {
 }
 .link-tile-preview {
   align-items: flex-end;
+  width: min(50vw, 100%);
+  min-width: 0;
 }
 .link-pill-preview {
   display: inline-flex;
   flex-direction: column;
   align-items: stretch;
-  max-width: min(260px, 70vw);
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 0;
   overflow: hidden;
 }
 .link-preview-image {
   display: block;
   width: 100%;
-  height: 132px;
-  object-fit: cover;
+  height: min(37.5vw, 50vh, 420px);
+  object-fit: contain;
   background: var(--color-base-200);
 }
 .link-label {
