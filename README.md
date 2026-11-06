@@ -1,5 +1,15 @@
 # msgbrowse
 
+> **Fork objective:** Permanent, offline archiving of Apple iMessages and their
+> attachments while Apple Messages in iCloud remains the active messaging system.
+> This fork builds on [upstream msgbrowse](https://github.com/stump-wtf/msgbrowse)
+> and aims to retain imported history when source messages are later deleted.
+> **Append-only retention is planned, not implemented or tested.** The current
+> importer replaces changed conversations, and attachment files can be lost on
+> refresh. Do not delete messages from iCloud based on the current archive.
+> Read the [fork architecture and implementation status](docs/ARCHITECTURE.md)
+> before using it for archival decisions.
+
 [![CI](https://github.com/joestump/msgbrowse/actions/workflows/ci.yml/badge.svg)](https://github.com/joestump/msgbrowse/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-joestump.github.io%2Fmsgbrowse-blue)](https://joestump.github.io/msgbrowse/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -79,8 +89,9 @@ msgbrowse --data-dir ./data embed    # optional; needs an LLM endpoint
 msgbrowse --data-dir ./data serve    # auto-opens http://127.0.0.1:8787
 ```
 
-Imports share one database and are incremental and idempotent — re-run after
-each new export. Browsing and keyword search work without any LLM. Prefer
+Imports share one database and skip unchanged exports. Changed conversations
+are currently replaced in SQLite, so this is **not** permanent append-only
+retention. Browsing and keyword search work without any LLM. Prefer
 clicking? **Settings → Providers** in the web UI runs export + import per source
 with one click. See the
 [first import guide](https://joestump.github.io/msgbrowse/docs/getting-started/first-import/).
@@ -154,6 +165,32 @@ Everything lives at
 - [Architecture](https://joestump.github.io/msgbrowse/architecture) — ADRs in [`docs/adr/`](docs/adr/), specs in [`docs/openspec/specs/`](docs/openspec/specs/)
 
 ## Development
+
+### Build and run this checkout on macOS, including Apple Silicon
+
+The core CLI is pure Go. Install the toolchain specified by `go.mod`
+(`go 1.25.8`, with `toolchain go1.27.0`), then run from this repository:
+
+```sh
+make build
+./bin/msgbrowse --data-dir ./data --imessage-archive-root /absolute/path/to/imessage-export doctor
+./bin/msgbrowse --data-dir ./data --imessage-archive-root /absolute/path/to/imessage-export imessage-import
+./bin/msgbrowse --data-dir ./data --imessage-archive-root /absolute/path/to/imessage-export serve
+```
+
+The iMessage root must contain top-level `<ChatName>.txt` files from
+`imessage-exporter -f txt`, preferably with copied `attachments/` media. For a
+new export, install `imessage-exporter` (for example,
+`brew install imessage-exporter`), grant the exporting terminal Full Disk Access,
+and use `./bin/msgbrowse --imessage-archive-root /absolute/path/to/disposable-export export`.
+This invokes `-f txt -c clone`. Use a disposable or separately backed-up export
+location: exporter overwrite behavior is not verified here. The CLI needs the
+exporter only to create fresh exports; browsing an already populated local DB
+and intact media tree works offline. `./data/msgbrowse.sqlite` is the default
+database path. The desktop shell has separate Wails/cgo build requirements.
+
+The [fork architecture](docs/ARCHITECTURE.md) explains the verified pipeline,
+retention gaps, risks, and staged implementation plan.
 
 See the
 [local development guide](https://joestump.github.io/msgbrowse/docs/development/local-development/)
