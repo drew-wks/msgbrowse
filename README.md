@@ -122,6 +122,15 @@ msgbrowse --data-dir ./data embed    # optional; needs an LLM endpoint
 msgbrowse --data-dir ./data serve    # auto-opens http://127.0.0.1:8787
 ```
 
+On this Mac, run `./msgbrowse_run` from the repository to build if sources have
+changed, start the configured server, and open the browser. The launcher then
+returns to the shell while msgbrowse keeps running; running it again restarts
+that same server. Its log is `msgbrowse-server.log` beside the config file
+(`/Users/drew_wilkins/Documents/Messages/msgbrowse-server.log` with the default
+config); set `MSGBROWSE_RUN_LOG` to override it. If you set a custom
+`listen_addr` or pass `--port`, set `MSGBROWSE_RUN_URL` to the matching local URL
+so the launcher can check startup and restart the correct server.
+
 Imports share one database and skip unchanged exports. iMessage imports append
 newly observed messages and retain earlier rows; Signal and WhatsApp retain their
 existing import behavior. iMessage attachment bytes are copied to

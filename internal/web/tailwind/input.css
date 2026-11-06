@@ -1244,7 +1244,6 @@ a.meta-chip:hover {
   margin-left: auto;
   grid-template-columns: minmax(0, 640px) 3px 76px;
   text-align: right;
-  background: rgba(111, 147, 214, 0.05);
   border-right: 2px solid var(--color-primary);
   border-radius: 6px 0 0 6px;
 }
@@ -1272,10 +1271,6 @@ a.meta-chip:hover {
 .msg-row-preview.msg-row-me {
   grid-template-columns: minmax(0, 50vw) 3px 76px;
 }
-[data-theme="slate-light"] .msg-row-me {
-  background: color-mix(in oklab, var(--color-primary) 7%, transparent);
-}
-
 /* Conversation-only control; #main-content is the transcript scrollport. */
 .jump-bottom-btn {
   position: fixed;
@@ -1391,22 +1386,26 @@ a.meta-chip:hover {
 }
 .link-tile-preview {
   align-items: flex-end;
-  width: min(50vw, 100%);
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
 }
 .link-pill-preview {
   display: inline-flex;
   flex-direction: column;
   align-items: stretch;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
   padding: 0;
   overflow: hidden;
 }
 .link-preview-image {
   display: block;
-  width: 100%;
-  height: min(37.5vw, 50vh, 420px);
+  width: auto;
+  height: auto;
+  max-width: 25vw;
+  max-height: min(50vh, 420px);
   object-fit: contain;
   background: var(--color-base-200);
 }

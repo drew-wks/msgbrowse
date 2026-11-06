@@ -35,4 +35,74 @@ if [[ "$needs_build" == true ]]; then
   make build
 fi
 
-exec "$binary" --config "$config" serve "$@"
+# The server outlives this shell, as in perfumer_run.sh. A custom listen address
+# needs a matching MSGBROWSE_RUN_URL so restart and readiness use the right port.
+if [[ -z "${MSGBROWSE_RUN_URL:-}" ]]; then
+  for arg in "$@"; do
+    case "$arg" in
+      --port|--port=*|--host|--host=*|--listen-addr|--listen-addr=*)
+        printf 'msgbrowse_run: set MSGBROWSE_RUN_URL when overriding the listen address\n' >&2
+        exit 1
+        ;;
+    esac
+  done
+fi
+server_url="${MSGBROWSE_RUN_URL:-http://127.0.0.1:8787/}"
+authority="${server_url#http://}"
+authority="${authority%%/*}"
+port="${authority##*:}"
+if [[ "$server_url" != http://* ]] || [[ ! "$port" =~ ^[0-9]+$ ]] ||
+  (( 10#$port < 1 || 10#$port > 65535 )); then
+  printf 'msgbrowse_run: invalid MSGBROWSE_RUN_URL: %s\n' "$server_url" >&2
+  exit 1
+fi
+
+# Never stop another service just because it uses the requested port.
+listeners="$(lsof -tiTCP:"$port" -sTCP:LISTEN || true)"
+if [[ -n "$listeners" ]]; then
+  while IFS= read -r pid; do
+    command="$(ps -ww -p "$pid" -o command= 2>/dev/null || true)"
+    if [[ "$command" != "$binary --config $config serve"* ]]; then
+      printf 'msgbrowse_run: port %s is used by another process (PID %s)\n' "$port" "$pid" >&2
+      exit 1
+    fi
+    kill "$pid"
+  done <<< "$listeners"
+
+  for ((attempt = 0; attempt < 40; attempt++)); do
+    if ! lsof -tiTCP:"$port" -sTCP:LISTEN > /dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+  if lsof -tiTCP:"$port" -sTCP:LISTEN > /dev/null 2>&1; then
+    printf 'msgbrowse_run: port %s did not become free\n' "$port" >&2
+    exit 1
+  fi
+fi
+
+server_log="${MSGBROWSE_RUN_LOG:-$(dirname "$config")/msgbrowse-server.log}"
+touch "$server_log"
+chmod 600 "$server_log"
+nohup "$binary" --config "$config" serve "$@" < /dev/null >> "$server_log" 2>&1 &
+server_pid=$!
+
+ready=false
+for ((attempt = 0; attempt < 120; attempt++)); do
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    break
+  fi
+  if curl -fsS -o /dev/null --max-time 1 "$server_url" 2>/dev/null &&
+    lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | grep -Fxq "$server_pid"; then
+    ready=true
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$ready" != true ]]; then
+  kill "$server_pid" 2>/dev/null || true
+  printf 'msgbrowse_run: server did not start; see %s\n' "$server_log" >&2
+  exit 1
+fi
+
+printf 'msgbrowse_run: running at %s (PID %s); log: %s\n' "$server_url" "$server_pid" "$server_log"
