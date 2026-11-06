@@ -11,8 +11,8 @@
 // state (no mutation); only the second POST, carrying confirm=1, deletes. The
 // whole affordance is server-rendered htmx (CSP-safe, no JS dialogs). The
 // source is read from the fixed enum, never a client path; an unknown source
-// is a 400. The managed archive root is NEVER touched here — Disable is a
-// store-only operation.
+// is a 400 and iMessage is a 409. The managed archive root is NEVER touched
+// here — Disable is a store-only operation.
 //
 // Governing: ADR-0020, SPEC-0013 §Security "Same-origin protection for
 // privileged POSTs" + "No arbitrary paths — managed roots only", issue #162.
@@ -42,6 +42,10 @@ func (s *Server) handleSetupDisable(w http.ResponseWriter, r *http.Request) {
 	src := r.PostFormValue("source")
 	if !source.IsKnown(src) {
 		http.Error(w, "unknown source", http.StatusBadRequest)
+		return
+	}
+	if src == source.IMessage {
+		http.Error(w, "Permanent iMessage archive cannot be disabled", http.StatusConflict)
 		return
 	}
 

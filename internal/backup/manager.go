@@ -25,9 +25,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/joestump/msgbrowse/internal/archivepath"
 	"github.com/joestump/msgbrowse/internal/config"
 	"github.com/joestump/msgbrowse/internal/store"
 	_ "modernc.org/sqlite" // VACUUM INTO opens a fresh connection
@@ -184,17 +186,20 @@ func (m *Manager) create(ctx context.Context, preRestore bool) (Snapshot, error)
 		files["config.yaml"] = ""
 	}
 
-	// 3. Compute checksums and write the manifest.
+	// 3. Snapshot immutable retained iMessage media alongside the database.
+	if err := copyRetainedMedia(archivepath.IMessageMediaRoot(filepath.Dir(m.dbPath)),
+		filepath.Join(snapDir, "media", "imessage")); err != nil {
+		cleanup()
+		return Snapshot{}, fmt.Errorf("snapshot retained media: %w", err)
+	}
+
+	// 4. Compute checksums and write the manifest.
 	checksums, err := checksumDir(snapDir)
 	if err != nil {
 		cleanup()
 		return Snapshot{}, fmt.Errorf("checksum snapshot: %w", err)
 	}
-	for k := range files {
-		if sum, ok := checksums[k]; ok {
-			files[k] = sum
-		}
-	}
+	files = checksums
 	schemaVer, _ := m.readSchemaVersion(ctx, dbSnap)
 	manifest := Manifest{
 		Version:       1,
@@ -446,6 +451,10 @@ func (m *Manager) Restore(ctx context.Context, id string) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("pre-restore snapshot: %w", err)
 	}
+	if err := restoreRetainedMedia(filepath.Join(snapDir, "media", "imessage"),
+		archivepath.IMessageMediaRoot(filepath.Dir(m.dbPath))); err != nil {
+		return preRestore, fmt.Errorf("restore retained media: %w", err)
+	}
 
 	// 5. Swap: rename the live DB aside, copy the snapshot DB into place.
 	// rename(2) is atomic on the same filesystem; a crash leaves either the
@@ -534,24 +543,117 @@ func copyFile0600(src, dst string) error {
 	return err
 }
 
-// checksumDir computes SHA-256 checksums for every file in dir (non-recursive).
+// checksumDir computes SHA-256 checksums for every file in a snapshot tree.
 func checksumDir(dir string) (map[string]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
 	out := make(map[string]string)
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		sum, err := fileSHA256(filepath.Join(dir, e.Name()))
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("snapshot contains non-regular file: %s", path)
+		}
+		sum, err := fileSHA256(path)
 		if err != nil {
-			return nil, fmt.Errorf("checksum %s: %w", e.Name(), err)
+			return err
 		}
-		out[e.Name()] = sum
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		out[filepath.ToSlash(rel)] = sum
+		return nil
+	})
+	return out, err
+}
+
+// copyRetainedMedia copies only completed immutable media into a snapshot.
+func copyRetainedMedia(srcRoot, dstRoot string) error {
+	if _, err := os.Stat(srcRoot); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
 	}
-	return out, nil
+	return filepath.WalkDir(srcRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if strings.HasPrefix(entry.Name(), ".copy-") {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("retained media contains non-regular file: %s", path)
+		}
+		rel, err := filepath.Rel(srcRoot, path)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(dstRoot, rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+			return err
+		}
+		return copyFile0600(path, dst)
+	})
+}
+
+// restoreRetainedMedia adds missing snapshot files without deleting newer files.
+func restoreRetainedMedia(srcRoot, dstRoot string) error {
+	if _, err := os.Stat(srcRoot); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return filepath.WalkDir(srcRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("snapshot media is not regular: %s", path)
+		}
+		rel, err := filepath.Rel(srcRoot, path)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(dstRoot, rel)
+		want, err := fileSHA256(path)
+		if err != nil {
+			return err
+		}
+		if got, err := fileSHA256(dst); err == nil {
+			if got != want {
+				return fmt.Errorf("existing retained media differs from snapshot: %s", dst)
+			}
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+			return err
+		}
+		tmp, err := os.CreateTemp(filepath.Dir(dst), ".restore-*")
+		if err != nil {
+			return err
+		}
+		name := tmp.Name()
+		_ = tmp.Close()
+		defer os.Remove(name)
+		if err := copyFile0600(path, name); err != nil {
+			return err
+		}
+		if err := os.Link(name, dst); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func fileSHA256(path string) (string, error) {
@@ -605,6 +707,10 @@ func verifySnapshot(snapDir string) error {
 		return fmt.Errorf("parse manifest: %w", err)
 	}
 	for name, wantSum := range m.Files {
+		if name == "" || filepath.IsAbs(name) || filepath.Clean(name) != name ||
+			name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("invalid snapshot path: %q", name)
+		}
 		gotSum, err := fileSHA256(filepath.Join(snapDir, name))
 		if err != nil {
 			return fmt.Errorf("verify %s: %w", name, err)

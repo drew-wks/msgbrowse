@@ -8,9 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/joestump/msgbrowse/internal/archivepath"
 	"github.com/joestump/msgbrowse/internal/config"
 	"github.com/joestump/msgbrowse/internal/ingest"
+	"github.com/joestump/msgbrowse/internal/signal"
+	"github.com/joestump/msgbrowse/internal/source"
+	"github.com/joestump/msgbrowse/internal/store"
 	"github.com/joestump/msgbrowse/internal/whatsapp"
 )
 
@@ -82,6 +87,64 @@ func TestRunExportIMessageUsesCloneCopyMode(t *testing.T) {
 	// Signal must NOT run when its root is unset.
 	if _, ran := fr.callFor("sigexport"); ran {
 		t.Errorf("sigexport ran despite unset archive_root")
+	}
+}
+
+func TestIMessageExportPreservesLegacyAttachmentBeforeReplacement(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	root := filepath.Join(dataDir, "export")
+	media := filepath.Join(root, "attachments", "AB", "photo.jpg")
+	if err := os.MkdirAll(filepath.Dir(media), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(media, []byte("legacy-photo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(dataDir, store.DBFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cid, err := st.UpsertConversation(ctx, source.IMessage, "Solo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts, _ := time.Parse(signal.TimestampLayout, "2020-05-20 09:00:00")
+	msg := signal.Message{Conversation: "Solo", Timestamp: ts, TimestampRaw: "2020-05-20 09:00:00", Sender: "Me", Body: "old",
+		Attachments: []signal.Attachment{{Kind: signal.KindImage, RelPath: "attachments/AB/photo.jpg", OriginalName: "photo.jpg"}}}
+	if _, err := st.ReplaceConversationMessages(ctx, cid, source.IMessage, []signal.Message{msg}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	run := func(_ context.Context, _ string, _ ...string) error {
+		called = true
+		return os.Remove(media)
+	}
+	cfg := &config.Config{DataDir: dataDir, IMessageArchiveRoot: root}
+	if err := exportIMessage(ctx, run, cfg, exportOptions{imessageBin: "imessage-exporter"}); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("exporter was not invoked")
+	}
+	st, err = store.Open(filepath.Join(dataDir, store.DBFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var rel string
+	if err := st.DB().QueryRow(`SELECT rel_path FROM attachments LIMIT 1`).Scan(&rel); err != nil {
+		t.Fatal(err)
+	}
+	path, ok := archivepath.Resolve(source.IMessage, archivepath.Roots{IMessagePermanent: archivepath.IMessageMediaRoot(dataDir)}, "", rel)
+	if !ok {
+		t.Fatalf("legacy media was not retained: %q", rel)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "legacy-photo" {
+		t.Fatalf("retained media = %q, %v", got, err)
 	}
 }
 

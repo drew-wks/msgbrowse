@@ -36,9 +36,7 @@ type Options struct {
 }
 
 // Run imports the iMessage archive into st and returns the recorded summary.
-// It mirrors the Signal importer's incremental, idempotent contract: each
-// <ChatName>.txt is a conversation, re-parsed only when its file changes, and
-// messages are replaced atomically. Every row is tagged source="imessage".
+// Changed conversations append new records. Existing messages and media remain.
 func Run(ctx context.Context, st *store.Store, opts Options) (store.IngestRun, error) {
 	now := time.Now
 	if opts.Now != nil {
@@ -58,6 +56,9 @@ func Run(ctx context.Context, st *store.Store, opts Options) (store.IngestRun, e
 			return run, fmt.Errorf("%w at %s", ErrArchiveNotFound, opts.ArchiveRoot)
 		}
 		return run, fmt.Errorf("read imessage archive: %w", err)
+	}
+	if err := PreserveExistingAttachments(ctx, st, opts.ArchiveRoot); err != nil {
+		return run, err
 	}
 
 	// Diagnose the common "0 imported" case up front: the importer only reads
@@ -142,6 +143,9 @@ func Run(ctx context.Context, st *store.Store, opts Options) (store.IngestRun, e
 		"scanned", run.ConversationsScanned, "changed", run.ConversationsChanged,
 		"messages_added", run.MessagesAdded, "skipped_lines", run.SkippedLines,
 		"errors", run.Errors, "duration_ms", run.DurationMS)
+	if run.Errors > 0 {
+		return run, fmt.Errorf("iMessage import had %d error(s); archive is incomplete", run.Errors)
+	}
 	return run, nil
 }
 
@@ -160,10 +164,8 @@ func importConversation(
 	}
 	mtime, size := info.ModTime().Unix(), info.Size()
 
-	// Fast path: unchanged (mtime, size) → skip. `--full` forces a rescan.
-	if !opts.Full && prev != nil && prev.MTimeUnix == mtime && prev.SizeBytes == size {
-		return false, 0, 0, nil
-	}
+	// Hash even when mtime and size match: exporters can replace a file with
+	// different same-length content within the filesystem's time resolution.
 	contentHash, err := hashFile(path)
 	if err != nil {
 		return false, 0, 0, err
@@ -180,7 +182,10 @@ func importConversation(
 	if perr != nil {
 		return false, 0, 0, perr
 	}
-	added, err = st.ReplaceConversationMessages(ctx, convID, source.IMessage, msgs)
+	if err := retainMessageAttachments(ctx, st, opts.ArchiveRoot, msgs); err != nil {
+		return false, 0, 0, err
+	}
+	added, err = st.AppendIMessageMessages(ctx, convID, msgs)
 	if err != nil {
 		return false, 0, 0, err
 	}
@@ -190,7 +195,7 @@ func importConversation(
 		MTimeUnix:      mtime,
 		SizeBytes:      size,
 		ContentHash:    contentHash,
-		MessageCount:   added,
+		MessageCount:   len(msgs),
 		LastIngestedAt: at,
 	}); err != nil {
 		return false, 0, 0, err

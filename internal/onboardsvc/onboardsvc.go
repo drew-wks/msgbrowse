@@ -186,6 +186,14 @@ type storeImporter struct {
 	log *slog.Logger
 }
 
+// PreserveBeforeReplacement retains legacy iMessage media before managed-root adoption.
+func (im *storeImporter) PreserveBeforeReplacement(ctx context.Context, src, root string) error {
+	if src != source.IMessage {
+		return nil
+	}
+	return imessage.PreserveExistingAttachments(ctx, im.st, root)
+}
+
 // Import loads root into the store for src and returns the onboard-shaped result,
 // then runs a best-effort media transcode (non-fatal, like `msgbrowse import`).
 func (im *storeImporter) Import(ctx context.Context, src, root string) (onboard.ImportResult, error) {

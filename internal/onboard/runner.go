@@ -541,6 +541,25 @@ func (r *Runner) execute(jobCtx context.Context, src string, mode jobMode) {
 		r.cancel(src)
 		return
 	}
+	if src == source.IMessage {
+		if _, statErr := os.Stat(managedRoot); statErr == nil {
+			preserver, ok := r.importer.(PreReplacementPreserver)
+			if !ok {
+				_ = discardStaging(staging)
+				r.fail(src, ErrImportFailed, "iMessage importer cannot preserve prior attachments")
+				return
+			}
+			if err := preserver.PreserveBeforeReplacement(jobCtx, src, managedRoot); err != nil {
+				_ = discardStaging(staging)
+				r.fail(src, wrapSentinel(err, ErrImportFailed), fmt.Sprintf("could not preserve prior iMessage attachments: %v", err))
+				return
+			}
+		} else if !os.IsNotExist(statErr) {
+			_ = discardStaging(staging)
+			r.fail(src, wrapSentinel(statErr, ErrImportFailed), fmt.Sprintf("cannot inspect prior iMessage archive: %v", statErr))
+			return
+		}
+	}
 
 	// 4. Atomically adopt staging into the managed root.
 	r.update(src, PhaseAdopting, "Finalizing archive…", ImportResult{}, nil)

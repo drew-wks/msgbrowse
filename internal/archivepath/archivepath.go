@@ -27,11 +27,24 @@ type Roots struct {
 	// IMessage is the imessage-exporter output root (flat: <root>/<rel>,
 	// rel like "attachments/AB/CD/IMG.HEIC").
 	IMessage string
+	// IMessagePermanent holds immutable, content-addressed iMessage media.
+	IMessagePermanent string
 	// WhatsApp is the whatsapp-chat-exporter output root (flat: <root>/<rel>,
 	// rel like "Message/Media/<jid>/photo.jpg" — the parser stores RelPaths
 	// root-relative, SPEC-0009 REQ-0009-006).
 	WhatsApp string
 }
+
+// IMessageMediaRoot is the archive-owned media tree beside the SQLite file.
+func IMessageMediaRoot(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, "media", "imessage")
+}
+
+// IMessagePermanentPrefix distinguishes retained media from exporter paths.
+const IMessagePermanentPrefix = "permanent/"
 
 // Resolve maps an attachment's (source, conversation, rel) to an absolute path
 // under the correct archive, returning ok=false on traversal or misconfig:
@@ -42,6 +55,9 @@ type Roots struct {
 func Resolve(src string, roots Roots, convName, rel string) (string, bool) {
 	switch src {
 	case source.IMessage:
+		if strings.HasPrefix(rel, IMessagePermanentPrefix) {
+			return Contain(roots.IMessagePermanent, strings.TrimPrefix(rel, IMessagePermanentPrefix))
+		}
 		return Contain(roots.IMessage, rel)
 	case source.WhatsApp:
 		return Contain(roots.WhatsApp, rel)

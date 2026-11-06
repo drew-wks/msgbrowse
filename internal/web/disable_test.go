@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/joestump/msgbrowse/internal/onboard"
+	"github.com/joestump/msgbrowse/internal/signal"
 	"github.com/joestump/msgbrowse/internal/source"
 )
 
@@ -159,6 +160,30 @@ func TestDisableConfirmedDeletesStoreKeepsArchive(t *testing.T) {
 	chat := filepath.Join(managed, "export", "Harper", "chat.md")
 	if _, err := os.Stat(chat); err != nil {
 		t.Errorf("managed archive file %s removed by disable: %v", chat, err)
+	}
+}
+
+func TestDisableIMessageRejected(t *testing.T) {
+	srv, st, _ := newManagedRootServer(t)
+	ctx := context.Background()
+	cid, err := st.UpsertConversation(ctx, source.IMessage, "Permanent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReplaceConversationMessages(ctx, cid, source.IMessage, []signal.Message{{
+		Conversation: "Permanent", TimestampRaw: "2020-05-20 09:00:00", Sender: "Me", Body: "keep forever",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	rec := disablePOST(t, srv, selfOrigin, mintToken(t, srv), source.IMessage, true)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("iMessage Disable status = %d, want 409", rec.Code)
+	}
+	if n, _ := st.CountConversationMessages(ctx, cid); n != 1 {
+		t.Fatalf("Disable deleted archived message: %d", n)
+	}
+	if _, err := st.DeleteSourceData(ctx, source.IMessage); err == nil {
+		t.Fatal("store allowed iMessage source deletion")
 	}
 }
 

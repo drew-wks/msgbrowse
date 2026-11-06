@@ -4,9 +4,11 @@
 > attachments while Apple Messages in iCloud remains the active messaging system.
 > This fork builds on [upstream msgbrowse](https://github.com/stump-wtf/msgbrowse)
 > and aims to retain imported history when source messages are later deleted.
-> **Append-only retention is planned, not implemented or tested.** The current
-> importer replaces changed conversations, and attachment files can be lost on
-> refresh. Do not delete messages from iCloud based on the current archive.
+> **Append-only iMessage retention is implemented and covered by synthetic tests.**
+> Imported iMessages remain in SQLite when later exports omit them, and referenced
+> attachments are copied into archive-controlled storage. Real Messages history,
+> exporter compatibility, and complete recovery remain unverified. Do not delete
+> messages from iCloud based on synthetic tests alone.
 > Read the [fork architecture and implementation status](docs/ARCHITECTURE.md)
 > before using it for archival decisions.
 
@@ -89,9 +91,12 @@ msgbrowse --data-dir ./data embed    # optional; needs an LLM endpoint
 msgbrowse --data-dir ./data serve    # auto-opens http://127.0.0.1:8787
 ```
 
-Imports share one database and skip unchanged exports. Changed conversations
-are currently replaced in SQLite, so this is **not** permanent append-only
-retention. Browsing and keyword search work without any LLM. Prefer
+Imports share one database and skip unchanged exports. iMessage imports append
+newly observed messages and retain earlier rows; Signal and WhatsApp retain their
+existing import behavior. iMessage attachment bytes are copied to
+`<data-dir>/media/imessage` and no longer depend on the export directory once
+imported. Use `imessage-import --full` to recheck attachments when an export's
+text is unchanged. Browsing and keyword search work without any LLM. Prefer
 clicking? **Settings → Providers** in the web UI runs export + import per source
 with one click. See the
 [first import guide](https://joestump.github.io/msgbrowse/docs/getting-started/first-import/).
@@ -189,8 +194,8 @@ exporter only to create fresh exports; browsing an already populated local DB
 and intact media tree works offline. `./data/msgbrowse.sqlite` is the default
 database path. The desktop shell has separate Wails/cgo build requirements.
 
-The [fork architecture](docs/ARCHITECTURE.md) explains the verified pipeline,
-retention gaps, risks, and staged implementation plan.
+The [fork architecture](docs/ARCHITECTURE.md) explains the storage layout,
+identity limits, synthetic test coverage, and remaining real-history validation.
 
 See the
 [local development guide](https://joestump.github.io/msgbrowse/docs/development/local-development/)

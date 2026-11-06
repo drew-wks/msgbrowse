@@ -208,7 +208,7 @@ func TestReconcileReappliesManualMergeAcrossReingest(t *testing.T) {
 	ctx := context.Background()
 
 	sig, _ := st.UpsertConversation(ctx, source.Signal, "MJ")
-	im, _ := st.UpsertConversation(ctx, source.IMessage, "+15551234567")
+	im, _ := st.UpsertConversation(ctx, source.WhatsApp, "+15551234567")
 	cA, cB := contactIDOf(t, st, sig), contactIDOf(t, st, im)
 	winner, err := st.MergeContacts(ctx, cA, cB)
 	if err != nil {
@@ -218,17 +218,17 @@ func TestReconcileReappliesManualMergeAcrossReingest(t *testing.T) {
 		t.Fatal("expected one contact after merge")
 	}
 
-	// Simulate disabling + re-importing iMessage: its identifiers and orphaned
+	// Simulate disabling + re-importing WhatsApp: its identifiers and orphaned
 	// contacts are pruned, then the same identity is re-created fresh.
-	if _, err := st.DeleteSourceData(ctx, source.IMessage); err != nil {
+	if _, err := st.DeleteSourceData(ctx, source.WhatsApp); err != nil {
 		t.Fatal(err)
 	}
 	// The merge decision must survive the source delete.
 	if n := countLinks(t, st, "merge"); n != 1 {
 		t.Fatalf("merge links after source delete = %d, want 1 (overrides must survive)", n)
 	}
-	// Re-import recreates a fresh, unmerged iMessage contact.
-	im2, err := st.UpsertConversation(ctx, source.IMessage, "+15551234567")
+	// Re-import recreates a fresh, unmerged WhatsApp contact.
+	im2, err := st.UpsertConversation(ctx, source.WhatsApp, "+15551234567")
 	if err != nil {
 		t.Fatal(err)
 	}

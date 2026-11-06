@@ -244,6 +244,12 @@ type Importer interface {
 	Import(ctx context.Context, src, archiveRoot string) (ImportResult, error)
 }
 
+// PreReplacementPreserver lets an importer retain media from an old managed
+// export before the next successful export replaces that tree.
+type PreReplacementPreserver interface {
+	PreserveBeforeReplacement(ctx context.Context, src, archiveRoot string) error
+}
+
 // ImporterFunc adapts a plain func to Importer.
 type ImporterFunc func(ctx context.Context, src, archiveRoot string) (ImportResult, error)
 

@@ -59,8 +59,9 @@ func EffectiveRoot(cfg *config.Config, src string) string {
 // archivepath.Resolve consumers (web media serving, imageconv, doctor).
 func EffectiveRoots(cfg *config.Config) archivepath.Roots {
 	return archivepath.Roots{
-		Signal:   EffectiveRoot(cfg, source.Signal),
-		IMessage: EffectiveRoot(cfg, source.IMessage),
-		WhatsApp: EffectiveRoot(cfg, source.WhatsApp),
+		Signal:            EffectiveRoot(cfg, source.Signal),
+		IMessage:          EffectiveRoot(cfg, source.IMessage),
+		IMessagePermanent: archivepath.IMessageMediaRoot(cfg.DataDir),
+		WhatsApp:          EffectiveRoot(cfg, source.WhatsApp),
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"time"
 
 	"github.com/joestump/msgbrowse/internal/contacts"
@@ -27,7 +28,8 @@ const DBFileName = "msgbrowse.sqlite"
 
 // Store wraps the SQLite handle and exposes typed repository methods.
 type Store struct {
-	db *sql.DB
+	db      *sql.DB
+	dataDir string
 }
 
 // Open opens (creating if necessary) the SQLite database at path and applies the
@@ -59,7 +61,7 @@ func Open(path string) (*Store, error) {
 	// concurrent readers while writes serialize via the busy timeout.
 	db.SetMaxOpenConns(8)
 
-	s := &Store{db: db}
+	s := &Store{db: db, dataDir: filepath.Dir(path)}
 	if err := s.migrate(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -87,6 +89,9 @@ func OpenReadOnly(path string) (*Store, error) {
 
 // DB exposes the underlying handle for read queries added in later slices.
 func (s *Store) DB() *sql.DB { return s.db }
+
+// DataDir returns the directory containing this store's SQLite file.
+func (s *Store) DataDir() string { return s.dataDir }
 
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }

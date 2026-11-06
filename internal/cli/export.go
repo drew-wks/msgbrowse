@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 
 	"github.com/joestump/msgbrowse/internal/config"
+	"github.com/joestump/msgbrowse/internal/imessage"
 	"github.com/joestump/msgbrowse/internal/ingest"
+	"github.com/joestump/msgbrowse/internal/store"
 	"github.com/joestump/msgbrowse/internal/whatsapp"
 	"github.com/spf13/cobra"
 )
@@ -279,6 +281,25 @@ func exportIMessage(ctx context.Context, run runner, cfg *config.Config, opts ex
 	bin, err := resolveTool(opts.imessageBin, defaultIMessageExporterBin, imessageExporterInstallHint)
 	if err != nil {
 		return err
+	}
+	// CLI exports write directly into the configured root. Preserve any legacy
+	// SQLite references before the exporter can replace files at that root.
+	dbPath := filepath.Join(cfg.DataDir, store.DBFileName)
+	if _, statErr := os.Stat(dbPath); statErr == nil {
+		st, openErr := store.Open(dbPath)
+		if openErr != nil {
+			return openErr
+		}
+		preserveErr := imessage.PreserveExistingAttachments(ctx, st, cfg.IMessageArchiveRoot)
+		closeErr := st.Close()
+		if preserveErr != nil {
+			return preserveErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	} else if !os.IsNotExist(statErr) {
+		return statErr
 	}
 	args := append([]string{"-f", "txt", "-c", "clone", "-o", cfg.IMessageArchiveRoot}, opts.imessageArgs...)
 	slog.Info("running iMessage export", "tool", bin, "dest", cfg.IMessageArchiveRoot, "copy-method", "clone")

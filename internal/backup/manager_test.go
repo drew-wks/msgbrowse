@@ -8,7 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joestump/msgbrowse/internal/archivepath"
 	"github.com/joestump/msgbrowse/internal/config"
+	"github.com/joestump/msgbrowse/internal/signal"
+	"github.com/joestump/msgbrowse/internal/source"
 	"github.com/joestump/msgbrowse/internal/store"
 	_ "modernc.org/sqlite"
 )
@@ -59,6 +62,58 @@ func TestCreateProducesSnapshot(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(snapPath, "manifest.json")); err != nil {
 		t.Fatalf("snapshot manifest missing: %v", err)
+	}
+}
+
+func TestSnapshotRestoresIMessageRowsAndRetainedMedia(t *testing.T) {
+	m, st, dbPath, snapRoot := newTestManager(t)
+	ctx := context.Background()
+	cid, err := st.UpsertConversation(ctx, source.IMessage, "Solo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := filepath.Join(archivepath.IMessageMediaRoot(filepath.Dir(dbPath)), "ab", "synthetic.jpg")
+	if err := os.MkdirAll(filepath.Dir(media), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(media, []byte("backup-media"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ts, _ := time.Parse(signal.TimestampLayout, "2020-05-20 09:00:00")
+	msg := signal.Message{Conversation: "Solo", Timestamp: ts, TimestampRaw: "2020-05-20 09:00:00", Sender: "Me", Body: "retained",
+		Attachments: []signal.Attachment{{Kind: signal.KindImage, RelPath: "permanent/ab/synthetic.jpg", OriginalName: "synthetic.jpg"}}}
+	if _, err := st.AppendIMessageMessages(ctx, cid, []signal.Message{msg}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := m.Create(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(snapRoot, snap.ID, "media", "imessage", "ab", "synthetic.jpg")); err != nil || string(got) != "backup-media" {
+		t.Fatalf("snapshot media = %q, %v", got, err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `DELETE FROM conversations WHERE id = ?`, cid); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(media); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Restore(ctx, snap.ID); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := store.OpenReadOnly(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	if n, err := restored.CountMessages(ctx); err != nil || n != 1 {
+		t.Fatalf("restored messages = %d, %v", n, err)
+	}
+	if got, err := os.ReadFile(media); err != nil || string(got) != "backup-media" {
+		t.Fatalf("restored media = %q, %v", got, err)
 	}
 }
 

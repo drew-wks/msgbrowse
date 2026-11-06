@@ -160,9 +160,10 @@ func Run(ctx context.Context, st *store.Store, opts Options) (Summary, error) {
 	}
 	derivedDir := DerivedDir(opts.DataDir)
 	roots := archivepath.Roots{
-		Signal:   opts.ArchiveRoot,
-		IMessage: opts.IMessageArchiveRoot,
-		WhatsApp: opts.WhatsAppArchiveRoot,
+		Signal:            opts.ArchiveRoot,
+		IMessage:          opts.IMessageArchiveRoot,
+		IMessagePermanent: archivepath.IMessageMediaRoot(opts.DataDir),
+		WhatsApp:          opts.WhatsAppArchiveRoot,
 	}
 	workers := opts.Concurrency
 	if workers <= 0 {

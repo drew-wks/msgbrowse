@@ -7,9 +7,15 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/joestump/msgbrowse/internal/source"
 )
+
+// ErrPermanentSource cannot be disabled because its imported data is retained.
+var ErrPermanentSource = errors.New("permanent iMessage archive cannot be disabled")
 
 // LastSyncTimes returns the most recent SUCCESSFUL ingest time per source —
 // the "Last synced" stamp the Providers cards show (auto-refresh and manual
@@ -100,9 +106,13 @@ func (s *Store) SourceCounts(ctx context.Context) (map[string]SourceCount, error
 //
 // The managed archive on disk is NOT touched: Disable only forgets the
 // imported data, so a later Enable re-imports locally without re-exporting.
-// Returns the number of conversations removed. Runs in one transaction so a
-// failure leaves the store unchanged.
+// iMessage is permanent and cannot be disabled. Returns the number of
+// conversations removed. Runs in one transaction so a failure leaves the
+// store unchanged.
 func (s *Store) DeleteSourceData(ctx context.Context, src string) (int64, error) {
+	if src == source.IMessage {
+		return 0, ErrPermanentSource
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("disable %s: begin: %w", src, err)

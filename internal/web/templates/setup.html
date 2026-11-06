@@ -151,7 +151,7 @@
             {{- end}}
             {{/* Disable (issue #162): privileged POST behind the same gate as
                  Enable; the first click swaps in the inline confirm above. */}}
-            {{template "setup-disable-button" .}}
+            {{if ne .Source "imessage"}}{{template "setup-disable-button" .}}{{end}}
             {{- else if eq .State "needs-permission"}}
             {{/* Detect-and-guide only (ADR-0020): the guidance modal names the exact
                  grant, deep-links the exact System Settings pane, and offers Recheck.
