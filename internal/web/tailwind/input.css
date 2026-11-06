@@ -1328,6 +1328,32 @@ a.meta-chip:hover {
   align-items: center;
   gap: 0.25rem;
 }
+.link-tile-preview {
+  align-items: flex-end;
+}
+.link-pill-preview {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  max-width: min(260px, 70vw);
+  padding: 0;
+  overflow: hidden;
+}
+.link-preview-image {
+  display: block;
+  width: 100%;
+  height: 132px;
+  object-fit: cover;
+  background: var(--color-base-200);
+}
+.link-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.link-pill-preview .link-label {
+  padding: 0.3rem 0.55rem;
+}
 
 /* Reaction badges: small emoji pills under a message, with an optional repeat
  * count. Driven by the slate variables so the light variant restyles for free. */

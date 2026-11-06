@@ -16,6 +16,56 @@ type LegacyIMessageAttachment struct {
 	RelPath string
 }
 
+// IMessagePreviewAsset is a retained link-card image associated with an
+// already-imported iMessage. Kind distinguishes the displayed image, other
+// preview images, and an icon without making them ordinary gallery photos.
+type IMessagePreviewAsset struct {
+	Kind         string
+	RelPath      string
+	OriginalName string
+}
+
+// AppendIMessagePreviewAssets adds preview references to an existing message.
+// Repeated runs never duplicate rows or alter previously archived content.
+func (s *Store) AppendIMessagePreviewAssets(ctx context.Context, messageID int64, assets []IMessagePreviewAsset) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var convID, tsUnix int64
+	if err := tx.QueryRowContext(ctx, `SELECT conversation_id, ts_unix FROM messages WHERE id=? AND source=?`,
+		messageID, source.IMessage).Scan(&convID, &tsUnix); err != nil {
+		return 0, fmt.Errorf("find iMessage for preview: %w", err)
+	}
+	added := 0
+	for _, asset := range assets {
+		if asset.Kind != "link_preview" && asset.Kind != "link_preview_extra" && asset.Kind != "link_icon" {
+			return 0, fmt.Errorf("invalid iMessage preview kind: %q", asset.Kind)
+		}
+		if !strings.HasPrefix(asset.RelPath, archivepath.IMessagePermanentPrefix) {
+			return 0, fmt.Errorf("iMessage preview was not retained: %q", asset.RelPath)
+		}
+		res, err := tx.ExecContext(ctx, `INSERT INTO attachments(message_id, conversation_id, ts_unix, kind, rel_path, original_name)
+			SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS
+			(SELECT 1 FROM attachments WHERE message_id=? AND kind=? AND rel_path=?)`,
+			messageID, convID, tsUnix, asset.Kind, asset.RelPath, asset.OriginalName,
+			messageID, asset.Kind, asset.RelPath)
+		if err != nil {
+			return 0, fmt.Errorf("append iMessage preview: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		added += int(n)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return added, nil
+}
+
 // LegacyIMessageAttachments lists iMessage media still pointing at export files.
 func (s *Store) LegacyIMessageAttachments(ctx context.Context) ([]LegacyIMessageAttachment, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT a.id, a.rel_path FROM attachments a

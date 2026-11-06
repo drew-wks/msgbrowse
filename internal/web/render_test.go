@@ -27,9 +27,16 @@ func TestRenderBody(t *testing.T) {
 			excludes: []string{"media/cat.jpg", "![", "<img"},
 		},
 		{
-			name:     "linkifies bare url and re-escapes trailing punctuation",
+			name:     "shows domain for inline url and re-escapes trailing punctuation",
 			in:       "see https://example.com/x.",
-			contains: []string{`href="https://example.com/x"`, ">https://example.com/x<", "/a>."},
+			contains: []string{`href="https://example.com/x"`, ">example.com<", "/a>."},
+			excludes: []string{">https://example.com/x<"},
+		},
+		{
+			name:     "omits url-only line but keeps preview title",
+			in:       "https://www.tiktok.com/@someone/video/123?tracking=long\nTikTok · Example",
+			contains: []string{"TikTok · Example"},
+			excludes: []string{"tracking=long", "<br>"},
 		},
 		{
 			name:     "markdown link to url becomes anchor with text",
@@ -61,7 +68,7 @@ func TestRenderBody(t *testing.T) {
 		},
 		{
 			name:     "anchors carry noopener noreferrer nofollow",
-			in:       "https://example.com",
+			in:       "see https://example.com",
 			contains: []string{`rel="noopener noreferrer nofollow"`, `target="_blank"`},
 		},
 		{

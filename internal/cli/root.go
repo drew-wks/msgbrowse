@@ -79,6 +79,7 @@ func NewRootCommand() *cobra.Command {
 		newSignalImportCommand(),
 		newIngestAliasCommand(),
 		newIMessageImportCommand(),
+		newIMessagePreviewsCommand(),
 		newWhatsAppImportCommand(),
 		newDevicesCommand(),
 		newDoctorCommand(),

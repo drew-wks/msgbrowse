@@ -146,18 +146,38 @@ DATA_DIR="$HOME/msgbrowse-data"
 mkdir -p "$EXPORT_DIR" "$DATA_DIR"
 imessage-exporter -f txt -c clone -o "$EXPORT_DIR"
 ./bin/msgbrowse --data-dir "$DATA_DIR" --imessage-archive-root "$EXPORT_DIR" imessage-import
+./bin/msgbrowse --data-dir "$DATA_DIR" imessage-previews --all --dry-run
+./bin/msgbrowse --data-dir "$DATA_DIR" imessage-previews --all
 ./bin/msgbrowse --data-dir "$DATA_DIR" --imessage-archive-root "$EXPORT_DIR" doctor
 ./bin/msgbrowse --data-dir "$DATA_DIR" --imessage-archive-root "$EXPORT_DIR" serve
 ```
 
 The exporter command uses its [documented `-f txt`, `-c clone`, and `-o`
 options](https://github.com/ReagentX/imessage-exporter/blob/4.2.0/imessage-exporter/README.md):
-`clone` copies attachments without converting them. After import, open the
-local interface, compare expected conversations and message counts, search for
+`clone` copies attachments without converting them.
+`imessage-import` also creates cached JPEG previews for HEIC/HEIF/TIFF images
+when a local converter such as macOS `sips` is available. If the archive was
+imported before conversion ran, or a restored archive has no preview cache,
+run `./bin/msgbrowse --data-dir "$DATA_DIR" media` and refresh the browser.
+The original image stays in permanent media storage; JPEG previews are
+regenerable files under `<data-dir>/derived`. After import, open the local
+interface, compare expected conversations and message counts, search for
 known messages, and open representative attachments. Run
 `imessage-exporter --diagnostics` to check the local source for missing files,
 and resolve import errors before treating the archive as complete. `doctor`
 samples media health; it does not prove every historical file is present.
+Exporter 5.0.1's TXT output omits local URL balloon thumbnail files. The optional
+`imessage-previews` step reads Apple's local Messages database and attachment
+files **read-only**, then copies images for uniquely matched, already-imported
+links into permanent media storage. It requires Full Disk Access for the app
+running msgbrowse. Use `--participant PHONE_OR_EMAIL --start-date YYYY-MM-DD
+--end-date YYYY-MM-DD --timezone America/Toronto` to limit a scan; the end date
+is exclusive. `--source-db` and `--attachment-root` can point to a copied source.
+Run it while those source files are still available. It reports unmatched,
+ambiguous, missing, or unsupported assets and exits unsuccessfully if any occur.
+It never downloads images from the internet. The transcript shows retained
+thumbnails when available and omits long URL text; the link and copy button
+still retain the complete URL. Other apps' link metadata may not be covered.
 Create a [backup](docs/ARCHITECTURE.md#data-model-and-storage) with
 `./bin/msgbrowse --data-dir "$DATA_DIR" backups create`; verify a restore on a
 separate copy before considering any deletion from Apple Messages or iCloud.

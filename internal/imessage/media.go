@@ -115,6 +115,12 @@ func retainAttachment(archiveRoot, dataDir, rel string) (string, error) {
 	if err != nil || within == ".." || strings.HasPrefix(within, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("attachment escapes export root: %q", rel)
 	}
+	return retainSourceFile(src, dataDir, strings.ToLower(filepath.Ext(rel)))
+}
+
+// retainSourceFile copies validated source media into immutable archive storage.
+// The caller must validate the source path and supply a safe, detected extension.
+func retainSourceFile(src, dataDir, ext string) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return "", err
@@ -149,7 +155,6 @@ func retainAttachment(archiveRoot, dataDir, rel string) (string, error) {
 		return "", closeErr
 	}
 	digest := hex.EncodeToString(h.Sum(nil))
-	ext := strings.ToLower(filepath.Ext(rel))
 	name := digest + ext
 	path := filepath.Join(mediaRoot, digest[:2], name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

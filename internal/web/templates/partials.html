@@ -296,6 +296,7 @@
            .Attachments` the dot is the attachment, so the message id (used for
            the row's own #m{ID} anchor) is otherwise out of reach. */}}
     {{- $msgID := .ID}}
+    {{- $preview := .PreviewPath}}
   <div class="msg-row{{if .IsOwner}} msg-row-me{{end}}{{if not $showSender}} msg-row-grouped{{end}}{{if and $.HighlightID (eq .ID $.HighlightID)}} target{{end}}" id="m{{.ID}}">
     <time class="msg-time font-mono" datetime="{{.TS}}" title="{{.TS}}">{{clockTime .TS}}</time>
     <span class="msg-rail {{if .IsOwner}}rail-me{{else}}{{avatarColor .Sender}}{{end}}" aria-hidden="true"></span>
@@ -352,7 +353,7 @@
            triggers the pill's click-through-to-open (#14). .link-tile keeps the
            pair wrapping as one unit inside the flex row. */}}
       <div class="msg-links">
-        {{- range .Links}}<span class="link-tile"><a class="link-pill" href="{{.URL}}" target="_blank" rel="noopener noreferrer nofollow">{{template "icon-link" $}}<span>{{.Domain}}</span></a><button type="button" class="copy-btn copy-btn-inline" data-copy-value="{{.URL}}" data-copy-announce="Link copied" aria-label="Copy link"><span class="icon-copy">{{template "icon-copy" $}}</span><span class="icon-check">{{template "icon-check" $}}</span></button></span>{{end}}
+        {{- range $li, $link := .Links}}<span class="link-tile{{if and (eq $li 0) $preview}} link-tile-preview{{end}}"><a class="link-pill{{if and (eq $li 0) $preview}} link-pill-preview{{end}}" href="{{$link.URL}}" target="_blank" rel="noopener noreferrer nofollow">{{if and (eq $li 0) $preview (eq (imgTileState $.Source $.ConvName $preview) "img")}}<img class="link-preview-image" loading="lazy" src="{{mediaURL $.ActiveID $preview}}" alt="">{{end}}<span class="link-label">{{template "icon-link" $}}<span>{{$link.Domain}}</span></span></a><button type="button" class="copy-btn copy-btn-inline" data-copy-value="{{$link.URL}}" data-copy-announce="Link copied" aria-label="Copy link"><span class="icon-copy">{{template "icon-copy" $}}</span><span class="icon-check">{{template "icon-check" $}}</span></button></span>{{end}}
       </div>
       {{- end}}
       {{- if .Reactions}}

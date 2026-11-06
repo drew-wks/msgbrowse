@@ -48,6 +48,7 @@ type MessageView struct {
 	TS          string
 	TSUnix      int64
 	Body        string
+	PreviewPath string // retained URL balloon thumbnail, separate from ordinary attachments
 	Attachments []AttachmentView
 	Links       []LinkView
 	Reactions   []ReactionView
@@ -534,7 +535,15 @@ func (s *Store) attachChildren(ctx context.Context, msgs []MessageView) error {
 			return err
 		}
 		if i, ok := idx[mid]; ok {
-			msgs[i].Attachments = append(msgs[i].Attachments, a)
+			switch a.Kind {
+			case "link_preview":
+				// The newest retained candidate wins without deleting older bytes.
+				msgs[i].PreviewPath = a.RelPath
+			case "link_preview_extra", "link_icon":
+				// Retain in the archive and backups, but keep the photo gallery clean.
+			default:
+				msgs[i].Attachments = append(msgs[i].Attachments, a)
+			}
 		}
 	}
 	if err := attRows.Err(); err != nil {

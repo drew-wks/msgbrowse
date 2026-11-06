@@ -48,7 +48,19 @@ func renderBody(body string) template.HTML {
 	if body == "" {
 		return ""
 	}
-	lines := strings.Split(body, "\n")
+	// URL-only lines from link balloons are represented by the link tile below
+	// the message. Keep the stored body intact for search and copying, but omit
+	// those lines here so long tracking URLs do not dominate the transcript.
+	var lines []string
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		candidate := strings.TrimRight(trimmed, trailingURLPunct)
+		links := signal.ExtractLinks(candidate)
+		if len(links) == 1 && links[0].URL == candidate {
+			continue
+		}
+		lines = append(lines, line)
+	}
 	var b strings.Builder
 	for i := 0; i < len(lines); {
 		if isQuoteLine(lines[i]) {
@@ -104,13 +116,16 @@ func renderInline(text string) string {
 			if parts := mdLinkParts.FindStringSubmatch(token); parts != nil {
 				txt, target := parts[1], strings.TrimSpace(parts[2])
 				if isURL(target) {
+					if isURL(txt) {
+						txt = signal.Domain(target)
+					}
 					b.WriteString(anchor(target, txt))
 				}
 				// else: media file link — drop (rendered as attachment)
 			}
 		case loc[6] >= 0: // bare url
 			u := strings.TrimRight(token, trailingURLPunct)
-			b.WriteString(anchor(u, u))
+			b.WriteString(anchor(u, signal.Domain(u)))
 			// Re-append any stripped trailing punctuation as escaped text.
 			if len(u) < len(token) {
 				b.WriteString(escapeText(token[len(u):]))
