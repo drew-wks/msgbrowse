@@ -4,11 +4,12 @@
 > attachments while Apple Messages in iCloud remains the active messaging system.
 > This fork builds on [upstream msgbrowse](https://github.com/stump-wtf/msgbrowse)
 > and aims to retain imported history when source messages are later deleted.
-> **Append-only iMessage retention is implemented and covered by synthetic tests.**
-> Imported iMessages remain in SQLite when later exports omit them, and referenced
-> attachments are copied into archive-controlled storage. Real Messages history,
-> exporter compatibility, and complete recovery remain unverified. Do not delete
-> messages from iCloud based on synthetic tests alone.
+> **Append-only iMessage retention is implemented.** Synthetic tests and a
+> limited real-data export, repeat import, and restore check passed. Imported
+> iMessages remain in SQLite when later exports omit them, and referenced
+> attachments are copied into archive-controlled storage. Full-history
+> completeness and compatibility across exporter versions remain unverified.
+> Do not delete messages from iCloud based on the limited sample alone.
 > Read the [fork architecture and implementation status](docs/ARCHITECTURE.md)
 > before using it for archival decisions.
 
@@ -70,11 +71,41 @@ no manual `xattr` step, and the app's embedded exporters actually run.
 go install github.com/joestump/msgbrowse/cmd/msgbrowse@latest
 ```
 
-Reading live iMessage data requires **Full Disk Access** for your terminal
-(System Settings → Privacy & Security) — a separate macOS permission from
-Gatekeeper that no install method avoids. Docker and the upstream exporters are
-covered in the
+Reading live iMessage data requires **Full Disk Access** for the app executing
+the exporter — a separate macOS permission from Gatekeeper that no install
+method avoids. Docker and the upstream exporters are covered in the
 [installation guide](https://joestump.github.io/msgbrowse/docs/getting-started/installation/).
+
+### iMessage exporter dependency on macOS
+
+[`imessage-exporter`](https://github.com/ReagentX/imessage-exporter) is a
+separate open-source project. It reads the local Apple Messages database and,
+with `-f txt -c clone`, produces TXT transcripts and copied attachments. msgbrowse then
+imports those files into its own SQLite database and permanent media directory.
+The **msgbrowse CLI does not install `imessage-exporter`**. Install and check the
+standalone binary before creating an export ([upstream installation and CLI
+reference](https://github.com/ReagentX/imessage-exporter/blob/4.2.0/imessage-exporter/README.md)):
+
+```sh
+brew install imessage-exporter
+which imessage-exporter
+imessage-exporter --version
+```
+
+In **System Settings → Privacy & Security → Full Disk Access**, add and enable
+the application that runs the exporter. For commands in Terminal, grant Terminal
+access (or grant your other terminal app access). For the desktop Providers
+workflow, grant the msgbrowse desktop app access. Reopen the application after
+changing the setting. See [Apple's Full Disk Access
+instructions](https://support.apple.com/guide/mac-help/change-privacy-security-settings-on-mac-mchl211c911f/mac).
+
+The parser targets the **4.2.0 TXT layout**, and the desktop build pins exporter
+4.2.0. The CLI uses whichever version is installed. Exporter **5.0.1** passed
+a limited real-data import, independent repeat export, and restore check;
+full-history and cross-version compatibility remain unverified. Record the
+output of `imessage-exporter --version` and validate a disposable export before
+relying on an upgrade. There is no proven minimum supported version or
+compatibility range.
 
 ## Quickstart
 
@@ -100,6 +131,58 @@ text is unchanged. Browsing and keyword search work without any LLM. Prefer
 clicking? **Settings → Providers** in the web UI runs export + import per source
 with one click. See the
 [first import guide](https://joestump.github.io/msgbrowse/docs/getting-started/first-import/).
+
+### Build and create a local iMessage archive
+
+Run this example from this repository on a Mac with Messages history. The export
+directory is **replaceable input**; the separate data directory holds the
+permanent SQLite archive and retained attachments. Choose locations with enough
+free space, outside Apple's `~/Library/Messages` directory:
+
+```sh
+make build
+EXPORT_DIR="$HOME/msgbrowse-imessage-export"
+DATA_DIR="$HOME/msgbrowse-data"
+mkdir -p "$EXPORT_DIR" "$DATA_DIR"
+imessage-exporter -f txt -c clone -o "$EXPORT_DIR"
+./bin/msgbrowse --data-dir "$DATA_DIR" --imessage-archive-root "$EXPORT_DIR" imessage-import
+./bin/msgbrowse --data-dir "$DATA_DIR" --imessage-archive-root "$EXPORT_DIR" doctor
+./bin/msgbrowse --data-dir "$DATA_DIR" --imessage-archive-root "$EXPORT_DIR" serve
+```
+
+The exporter command uses its [documented `-f txt`, `-c clone`, and `-o`
+options](https://github.com/ReagentX/imessage-exporter/blob/4.2.0/imessage-exporter/README.md):
+`clone` copies attachments without converting them. After import, open the
+local interface, compare expected conversations and message counts, search for
+known messages, and open representative attachments. Run
+`imessage-exporter --diagnostics` to check the local source for missing files,
+and resolve import errors before treating the archive as complete. `doctor`
+samples media health; it does not prove every historical file is present.
+Create a [backup](docs/ARCHITECTURE.md#data-model-and-storage) with
+`./bin/msgbrowse --data-dir "$DATA_DIR" backups create`; verify a restore on a
+separate copy before considering any deletion from Apple Messages or iCloud.
+
+You can also let msgbrowse invoke the same exporter. With only the iMessage root
+configured, run:
+
+```sh
+./bin/msgbrowse --data-dir "$DATA_DIR" --imessage-archive-root "$EXPORT_DIR" export
+./bin/msgbrowse --data-dir "$DATA_DIR" --imessage-archive-root "$EXPORT_DIR" imessage-import
+```
+
+`export` looks for
+`imessage-exporter` on `PATH`; set `imessage_exporter_bin` in `config.yaml` or
+pass `--imessage-exporter-bin /absolute/path/to/imessage-exporter` after
+`export` to use a specific binary. It invokes `-f txt -c clone -o "$EXPORT_DIR"`
+and preserves legacy attachment references before replacing export files.
+
+Alternatively, start `serve`, open **Settings → Providers**, and Enable or
+Refresh iMessage. The CLI server finds the exporter on `PATH` or through
+`imessage_exporter_bin`; the desktop app uses its bundled exporter. Providers
+exports to app-managed staging, adopts it at `<data-dir>/archives/imessage` on
+success, then imports it. The Providers export directory is also replaceable;
+permanent attachments live under `<data-dir>/media/imessage`. Providers cannot
+Disable the permanent iMessage archive.
 
 ## Commands
 
@@ -183,16 +266,14 @@ make build
 ./bin/msgbrowse --data-dir ./data --imessage-archive-root /absolute/path/to/imessage-export serve
 ```
 
-The iMessage root must contain top-level `<ChatName>.txt` files from
-`imessage-exporter -f txt`, preferably with copied `attachments/` media. For a
-new export, install `imessage-exporter` (for example,
-`brew install imessage-exporter`), grant the exporting terminal Full Disk Access,
-and use `./bin/msgbrowse --imessage-archive-root /absolute/path/to/disposable-export export`.
-This invokes `-f txt -c clone`. Use a disposable or separately backed-up export
-location: exporter overwrite behavior is not verified here. The CLI needs the
-exporter only to create fresh exports; browsing an already populated local DB
-and intact media tree works offline. `./data/msgbrowse.sqlite` is the default
-database path. The desktop shell has separate Wails/cgo build requirements.
+For the complete export-to-archive example, permission steps, and exporter
+version guidance, see [Build and create a local iMessage
+archive](#build-and-create-a-local-imessage-archive). The iMessage root must
+contain top-level `<ChatName>.txt` files and the referenced copied
+`attachments/` tree. The CLI needs the exporter to create fresh exports;
+browsing an already populated local DB and intact media tree works offline.
+`./data/msgbrowse.sqlite` is the default database path. The desktop shell has
+separate Wails/cgo build requirements.
 
 The [fork architecture](docs/ARCHITECTURE.md) explains the storage layout,
 identity limits, synthetic test coverage, and remaining real-history validation.

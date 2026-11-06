@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+cd "$repo_dir"
+
+binary="$repo_dir/bin/msgbrowse"
+config="${MSGBROWSE_RUN_CONFIG:-/Users/drew_wilkins/Documents/msgbrowse-stage3-20261106-2joh7o5l/restore-combined.yaml}"
+
+if [[ ! -f "$config" ]]; then
+  printf 'msgbrowse_run: config file not found: %s\n' "$config" >&2
+  exit 1
+fi
+
+# Make's build target is phony, so check its inputs before invoking it.
+needs_build=false
+if [[ ! -x "$binary" ]]; then
+  needs_build=true
+else
+  for input in Makefile go.mod go.sum; do
+    if [[ "$input" -nt "$binary" ]]; then
+      needs_build=true
+      break
+    fi
+  done
+  if [[ "$needs_build" == false ]] &&
+    [[ -n "$(find cmd/msgbrowse internal -type f -newer "$binary" -print -quit)" ]]; then
+    needs_build=true
+  fi
+fi
+
+if [[ "$needs_build" == true ]]; then
+  printf 'msgbrowse_run: build inputs changed; running make build\n' >&2
+  mkdir -p bin
+  make build
+fi
+
+exec "$binary" --config "$config" serve "$@"

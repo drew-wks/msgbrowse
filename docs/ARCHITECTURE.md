@@ -1,36 +1,54 @@
 # Permanent offline iMessage archive: architecture
 
-This is the architecture reference for this fork's iMessage archival behavior. The existing [upstream architecture](../ARCHITECTURE.md) describes msgbrowse as a whole. The Stage 1 assessment was based on commit `043562ae667e1fbc01b9c5609a49db8b12625eaf`; Stage 2 adds code and synthetic tests. No real Messages library has been validated yet.
+This is the architecture reference for this fork's iMessage archival behavior. The existing [upstream architecture](../ARCHITECTURE.md) describes msgbrowse as a whole. The Stage 1 assessment was based on commit `043562ae667e1fbc01b9c5609a49db8b12625eaf`; Stage 2 adds code and synthetic tests. Stage 3 has validated limited real iMessage and SMS exports; full-history completeness remains unverified.
 
 ## Purpose and scope
 
 Apple Messages with Messages in iCloud remains the active messaging system. This fork aims to retain a searchable, local history after a user deletes selected older messages from Apple Messages to reduce iCloud storage. The archive must survive source deletion and remain usable offline. Repeated ingestion must add new content without removing earlier archived content.
 
-This project reuses msgbrowse's Go application, SQLite store, web UI, and exporter integration. It does not sync data back to Apple Messages, replace active messaging, implement archive deletion, require a subscription, or introduce a new database or service. The Stage 2 code retains imported rows and media in synthetic tests; real-history completeness, exporter compatibility, and disaster recovery still need validation. Do not delete anything from iCloud on the strength of synthetic tests alone.
+This project reuses msgbrowse's Go application, SQLite store, web UI, and exporter integration. It does not sync data back to Apple Messages, replace active messaging, implement archive deletion, require a subscription, or introduce a new database or service. The Stage 2 code retains imported rows and media in synthetic tests; a limited real-data retention and restore drill also passed. Full-history completeness, broader exporter compatibility, and recovery from other failure modes still need validation. Do not delete anything from iCloud on the strength of this limited sample.
 
 ## System architecture
+
+[`imessage-exporter`](https://github.com/ReagentX/imessage-exporter) is an
+external, read-only exporter. It reads the local Apple Messages database
+(`~/Library/Messages/chat.db`) and attachment files, then writes TXT transcripts
+and copied attachments. It does **not** create msgbrowse's permanent SQLite
+archive. msgbrowse does not read or modify Apple's database: it consumes the
+export files, identifies newly observed messages, preserves earlier imported
+messages, copies attachment bytes into archive-controlled storage, and serves
+SQLite-backed search and offline browsing. This flow never writes back to Apple
+Messages or iCloud.
 
 ```mermaid
 flowchart LR
   subgraph Active[Active messaging — Apple controlled]
     Cloud[Messages in iCloud] <--> Devices[Mac and other Apple devices]
-    Devices --> ChatDB[Local macOS Messages database and media]
+    Devices --> ChatDB["~/Library/Messages/chat.db<br/>and source attachments"]
   end
   subgraph Archive[Historical archive — local, one way]
     Exporter[imessage-exporter]
-    Export[Text export and copied attachments]
+    Export["Replaceable TXT export<br/>and copied attachments"]
     Ingest[msgbrowse iMessage parser and importer]
-    DB[SQLite: messages and search]
-    Media[Retained local attachment files]
+    DB["msgbrowse.sqlite<br/>messages and search"]
+    Media["media/imessage<br/>retained attachment bytes"]
+    Backup["Backups<br/>DB and retained media"]
     UI[Local msgbrowse web UI]
     ChatDB --> Exporter --> Export --> Ingest --> DB --> UI
-    Export -->|copy and hash| Media --> UI
+    Ingest -->|copy and hash| Media --> UI
+    DB --> Backup
+    Media --> Backup
   end
 ```
 
+The boundary between `Export` and `Ingest` is deliberately one way. A later
+export can omit a message deleted from Apple Messages. The importer treats
+that omission as absent input for the current pass, not as an instruction to
+delete the already archived row or attachment bytes.
+
 **Current:** `msgbrowse export` invokes `imessage-exporter -f txt -c clone -o <imessage_archive_root>`; msgbrowse itself does not open `chat.db` ([`internal/cli/export.go`](../internal/cli/export.go), `exportIMessage`). The importer scans top-level `<ChatName>.txt` files, preserves legacy attachment references before source replacement, copies available media to permanent storage, and inserts newly observed messages without deleting old rows ([`internal/imessage/import.go`](../internal/imessage/import.go), `Run` and `importConversation`; [`internal/imessage/media.go`](../internal/imessage/media.go); [`internal/store/imessage_archive.go`](../internal/store/imessage_archive.go)). The Providers flow still exports into staging and swaps the managed export root, but retains referenced media first ([`internal/onboard/runner.go`](../internal/onboard/runner.go), `execute`; [`internal/onboardsvc/onboardsvc.go`](../internal/onboardsvc/onboardsvc.go), `PreserveBeforeReplacement`).
 
-**Target beyond Stage 2:** Validate the importer against actual Apple Messages exports, prove recovery from a complete backup, and establish a safe manual deletion procedure. Message GUID support and identity ambiguity remain open; source deletions must never travel back into the historical archive.
+**Target beyond the limited Stage 3 sample:** Validate additional iMessage conversations and full-history completeness, test recovery under more failure modes, and establish a safe manual deletion procedure. Message GUID support and identity ambiguity remain open; source deletions must never travel back into the historical archive.
 
 Other msgbrowse sources (Signal, WhatsApp) share the store's replacement method. Scope iMessage retention changes explicitly so their existing behavior is not changed accidentally ([`internal/ingest/ingest.go`](../internal/ingest/ingest.go), line 242; [`internal/whatsapp/import.go`](../internal/whatsapp/import.go), line 170).
 
@@ -46,9 +64,76 @@ The CLI creates `<data_dir>/msgbrowse.sqlite`; `data_dir` defaults to `./data`. 
 | Link and reaction | Links cascade with messages. Reactions use message hash and `(message_hash, emoji, actor)` uniqueness; iMessage tapbacks are parsed as reaction data on a message, not standalone messages. ([`internal/store/store.go`](../internal/store/store.go), lines 332–400; [`internal/imessage/parser.go`](../internal/imessage/parser.go), lines 93–127 and 188–201.) |
 | Search and metadata | FTS5 `messages_fts` is maintained by message insert/delete/update triggers. `ingest_state` tracks a conversation's export file mtime, size, content hash, and last count; `ingest_runs` holds run summaries. Embeddings are optional and keyed by message hash. ([`internal/store/schema.go`](../internal/store/schema.go), lines 120–159 and 222–244.) |
 
-For CLI exports, `imessage_archive_root` contains text files and a copied `attachments/` tree. On the Providers path, the app-managed root is `<data_dir>/archives/imessage` ([`internal/setup/layout.go`](../internal/setup/layout.go), `ManagedRoot`). The importer streams each referenced regular file under the export root into `<data_dir>/media/imessage/<first-two-SHA256-hex>/<SHA256><lowercase-extension>`. It creates files without overwriting an existing copy and verifies an existing file's hash. SQLite stores `permanent/<first-two-hex>/<SHA256><extension>`; [`internal/archivepath/archivepath.go`](../internal/archivepath/archivepath.go), `Resolve`, maps that namespace to retained storage. Unchanged bytes and extension share one file across messages. Export paths remain read-only input. Missing new media fails that conversation's import; a previously retained attachment can survive a later missing source file. Existing pre-Stage-2 attachment references are copied and redirected when their source bytes are still available. If those bytes were already lost, their historical contents cannot be reconstructed or verified.
+The paths have distinct owners and lifetimes:
+
+```text
+~/Library/Messages/chat.db                 Apple-owned source database; never modified by msgbrowse
+~/Library/Messages/Attachments/            Apple-owned source media
+<export_dir>/<ChatName>.txt               manual, replaceable TXT export
+<export_dir>/attachments/...              manual, replaceable copied attachments
+<data_dir>/archives/imessage.staging/...  temporary Providers export while a job runs
+<data_dir>/archives/imessage/...          adopted Providers export; still replaceable
+<data_dir>/msgbrowse.sqlite               permanent message and search database
+<data_dir>/media/imessage/<2-hex>/<sha256><ext>  permanent attachment bytes
+<data_dir>/backups/snapshot-.../...       default snapshot location; configurable
+```
+
+For manual CLI exports, `imessage_archive_root` points to `<export_dir>`.
+Providers instead runs the exporter into staging and adopts the result under
+`<data_dir>/archives/imessage` after success ([`internal/setup/layout.go`](../internal/setup/layout.go),
+`ManagedRoot`; [`internal/onboard/runner.go`](../internal/onboard/runner.go),
+`execute`). Neither export tree is permanent storage. The importer streams each
+referenced regular attachment file into
+`<data_dir>/media/imessage/<first-two-SHA256-hex>/<SHA256><lowercase-extension>`.
+It creates files without overwriting an existing copy and verifies an existing
+file's hash. SQLite stores `permanent/<first-two-hex>/<SHA256><extension>`;
+[`internal/archivepath/archivepath.go`](../internal/archivepath/archivepath.go),
+`Resolve`, maps that namespace to retained storage. Unchanged bytes and
+extension share one file across messages. Export paths remain read-only input.
+Missing new media fails that conversation's import; a previously retained,
+verified attachment can survive a later missing source file. Existing
+pre-Stage-2 attachment references are copied and redirected when their source
+bytes are still available. If those bytes were already lost, their historical
+contents cannot be reconstructed or verified.
 
 The Backups feature uses `VACUUM INTO` for the SQLite DB and now copies retained iMessage media into each snapshot, listing checksums for every file in its manifest. Restore verifies checksums and restores missing media before swapping in the snapshot DB; it leaves newer retained files intact ([`internal/backup/manager.go`](../internal/backup/manager.go), `Create`, `Restore`, `copyRetainedMedia`, `restoreRetainedMedia`). Older snapshots made before Stage 2 may contain only the DB and config. Restore them only after separately verifying that all referenced media still exists.
+
+### Exporter dependency and completeness
+
+The CLI locates `imessage-exporter` on `PATH` unless
+`--imessage-exporter-bin` (for `msgbrowse export`) or
+`imessage_exporter_bin` in config specifies a path. The CLI does not install
+it. `msgbrowse export` invokes
+`imessage-exporter -f txt -c clone -o <imessage_archive_root>`; the standalone
+command can be run with those same flags. The `serve` Providers flow uses the
+config path or `PATH`, and the desktop app uses its bundled binary. Providers
+uses `-f txt -c clone -o <staging_dir>` and imports the adopted result. The
+[upstream 4.2.0 binary documentation](https://github.com/ReagentX/imessage-exporter/blob/4.2.0/imessage-exporter/README.md)
+defines `clone` as copying attachment files without conversion.
+
+The parser targets the exporter **4.2.0 TXT layout**
+([`internal/imessage/parser.go`](../internal/imessage/parser.go)); the desktop
+build pins exporter **4.2.0**
+([`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml)). Tests
+use synthetic text and media. A limited real export made with **5.0.1** also
+parsed and imported, but this does not establish general 5.0.1 compatibility
+or a supported version range. The CLI has no version pin or runtime version gate. Check a local
+binary with `which imessage-exporter` and `imessage-exporter --version`, record
+the result, and validate output after changing versions. There is no established
+minimum version or verified compatibility range. Pinning a version for a
+reproducible archival workflow is advisable **after** validating it on a
+disposable real export; a Homebrew install may change with future upgrades.
+
+An exporter failure prevents the Providers staging tree from being adopted;
+in a manual workflow, stop on export failure rather than importing a possibly
+partial output directory. Success of the exporter alone does not establish
+completeness. Attachments absent from the local Mac, including files not fully
+downloaded from iCloud, cannot be copied. [Exporter
+diagnostics](https://github.com/ReagentX/imessage-exporter/blob/develop/docs/diagnostics.md)
+report missing files; msgbrowse's parser can also skip an `Attachment missing!`
+notice, while a missing file referenced by a parsed attachment fails that
+conversation's import. Compare expected counts and representative media with
+the source and resolve every error before relying on the archive.
 
 ## Data retention policy
 
@@ -76,7 +161,7 @@ This is a validation workflow for the implementation, not yet a safe instruction
 3. Import into msgbrowse's SQLite store and independently retained media storage. Resolve every import error before relying on the result.
 4. Verify expected conversations and counts, sample search results and open every required attachment class, and run integrity checks. The current `doctor` samples image attachment paths; it is not a complete archival verification ([`internal/cli/doctor.go`](../internal/cli/doctor.go), lines 377–421).
 5. Create a new-format backup of **both** the SQLite database and retained attachment files, then verify restore on a separate copy. Older DB-only snapshots do not cover media.
-6. **Only after verification and backup**, remove selected historical items from Apple Messages/iCloud, following a separately validated procedure. This action is irreversible across synced devices and is outside Stage 1.
+6. **Only after verification and backup**, remove selected historical items from Apple Messages/iCloud, following a separately validated procedure. This action is irreversible across synced devices and is outside Stage 2.
 7. Repeat export and import periodically to capture new content; recheck retention and backup integrity before any further source deletion.
 
 Do not begin step 6 until real-history completeness, unresolved identity cases, attachment integrity, and recovery have been verified.
@@ -88,8 +173,8 @@ The core CLI requires the Go toolchain specified in [`go.mod`](../go.mod) (`go 1
 ```sh
 make build
 brew install imessage-exporter   # only if you need to produce a fresh iMessage export
-./bin/msgbrowse --data-dir ./data --imessage-archive-root /absolute/path/to/imessage-export doctor
 ./bin/msgbrowse --data-dir ./data --imessage-archive-root /absolute/path/to/imessage-export imessage-import
+./bin/msgbrowse --data-dir ./data --imessage-archive-root /absolute/path/to/imessage-export doctor
 ./bin/msgbrowse --data-dir ./data --imessage-archive-root /absolute/path/to/imessage-export serve
 ```
 
@@ -111,28 +196,132 @@ To generate an export with the existing CLI, set an iMessage root and run `./bin
 | Apple/macOS or exporter format change | Parser targets `imessage-exporter` 4.2.0 text layout ([`internal/imessage/parser.go`](../internal/imessage/parser.go), lines 1–28). Validate against real exports and each upgrade. |
 | Missing local downloads | `clone` can only preserve files the exporter can access. Confirm actual bytes and sizes; parser can classify a missing-attachment notice as non-content ([`internal/imessage/parser.go`](../internal/imessage/parser.go), lines 84–91). |
 | Identity and edits | Text model lacks GUIDs; content hashes change with body or conversation name. Test edited messages, duplicate tuples, groups, timestamp ties, export ordering, and reactions before choosing identity. |
-| Attachment integrity | Legacy references may already outlive their original bytes. The importer verifies retained bytes when copying; validate actual attachment classes and sizes on real history. |
+| Attachment integrity | Legacy references may already outlive their original bytes. The importer verifies retained bytes when copying; validate actual attachment classes and sizes on real history. The 11 omitted hidden rows in the Stage 3 sample were URL preview payloads; their cache bytes are not retained. Do not treat `hide_attachment` alone as proof that a file can be excluded in other conversations. |
 | SQLite corruption and recovery | WAL database needs a consistent backup. New snapshots include DB, config, and retained iMessage media; perform a restore drill on a separate copy. Older snapshots may lack media. |
 | macOS and upstream maintenance | Full Disk Access, exporter availability, text format, and Go/Wails dependencies can change. Keep format fixtures and a tested offline build path; do not assume continued upstream updates. |
 
+## Limited Stage 3 real-data validation (2026-11-06)
+
+Approved, isolated exports covered 2026-10-20 through 2026-11-05 using
+`imessage-exporter` 5.0.1. One participant filter matched after removing
+phone punctuation. A second phone number was corrected by the user and then
+matched; the originally supplied digits and the confirmed email had no exact
+matching handle in the local Messages database. The corrected phone export
+contained 15 messages, and a read-only query of Apple's chat metadata counted
+five RCS and ten SMS messages for that handle in the selected window. The first
+participant's selected chats contained 106 iMessage messages, 14 SMS messages,
+and nine iMessage reaction rows. The exporter's 120 timestamped messages and
+msgbrowse's 120 message rows plus nine reaction rows match those source
+categories. Daily counts for the 120 source message rows and 120 exported
+timestamp headers also match across the window. This provides limited real
+iMessage-transport coverage, although TXT does not carry stable source GUIDs
+for per-message identity matching. No personal message text or participant
+identifiers were recorded in this report.
+
+The exporter read Apple's database without modifying it. msgbrowse imported
+disposable byte-for-byte copies into a separate archive. The first import
+produced 120 messages, five conversations (four individual and one group with
+six real messages), and ten retained attachments. The message count matched
+the 120 timestamp headers in those transcripts; messages spanned 14 dates
+within the selected window. The attachments comprised HEIC, MOV, PNG, GIF,
+and VCF files. A read-only source audit found 21 attachment rows associated
+with iMessage-service messages in the selected chats: ten visible and eleven
+marked hidden by Apple. All 21 source files were present locally. The ten
+visible source hashes matched the ten copied exporter files exactly. All
+eleven hidden rows had the `.pluginPayloadAttachment` extension and belonged
+to four `com.apple.messages.URLBalloonProvider` messages. They represented
+eight distinct hashes and 644,528 bytes; none appeared in the export. Each
+of the four source timestamps had a URL-bearing TXT block and no attachment
+path. This timestamp match is evidence that the links were rendered, though
+TXT lacks GUIDs for a definitive per-message match. Exporter 5.0.1 describes
+`hide_attachment` as a [Messages UI flag](https://github.com/ReagentX/imessage-exporter/blob/5.0.1/imessage-database/src/tables/attachment.rs#L164-L170)
+and [renders URL balloons](https://github.com/ReagentX/imessage-exporter/blob/5.0.1/imessage-exporter/src/exporters/txt/balloons.rs#L44-L53)
+from URL data; the [TXT attachment renderer](https://github.com/ReagentX/imessage-exporter/blob/5.0.1/imessage-exporter/src/exporters/txt/mod.rs#L218-L268)
+uses attachment ranges in the message body. For this sample, the omitted files are auxiliary link-preview
+payloads, not missing user-visible attachments. The archive does not retain
+their raw cache bytes or reproduce the full Messages link-card presentation.
+A second clean archive imported those 120 messages and then added all 15
+messages from the corrected phone export, yielding 135 distinct messages in
+six conversations and the same ten attachments. There were no
+exporter `Attachment missing!` notices in either sample, and all ten SQLite
+references for exported attachments resolved to archive-owned files whose
+SHA-256 hashes matched the copied source files. Repeated imports added zero messages.
+Keyword search returned real-message hits, and the chronological query
+returned nondecreasing timestamps.
+
+A second, independent `imessage-exporter` 5.0.1 run used the same participant
+filters and date window in a new isolated export directory. Its seven TXT
+transcripts and ten copied files had the same relative paths and SHA-256
+checksums as the first exports; the timestamp-header counts were again 120
+and 15. A consistent SQLite copy of the clean 135-message archive was placed
+in a disposable directory. Running `imessage-import --full` against both new
+exports forced parsing and insertion checks rather than relying on the
+unchanged-file shortcut. Both imports added zero messages. The copied archive
+still had the same 135 message hashes, six conversations, nine reactions, and
+ten media hashes, and passed `PRAGMA integrity_check`. This validates one
+independent repeat export with the same exporter version and source window;
+it does not prove identity stability after contact renames, edits, exporter
+upgrades, or timezone changes.
+
+In the disposable export only, one message with an attachment and one entire
+conversation transcript were removed, along with the selected source media
+file. Reimport added zero messages and retained all 120 prior message hashes,
+all five conversations, and all ten archived media checksums. Adding one
+synthetic message to that disposable export added exactly one archive row and
+one searchable result; repeating the import added zero duplicates. This tests
+source omission, not deletion from Apple Messages or iCloud.
+
+`msgbrowse backups create` made a snapshot containing the SQLite database,
+manifest, configuration, and ten retained media files. A byte-identical copy
+of the snapshot was restored over a disposable database in a separate
+directory. The restored database passed `PRAGMA integrity_check`, contained
+121 messages, five conversations, and ten valid attachment references, and
+returned the synthetic search result. With the exporter absent from `PATH`,
+the restored loopback browser served its home and search pages and returned
+all ten media files with the expected checksums across all five file types.
+`msgbrowse doctor` exited successfully with no problem checks; its warnings
+reflected unconfigured optional archive roots and exporters in the isolated
+restore setup.
+
+A second snapshot of the clean 135-message combined archive was copied and
+restored into another separate directory. The restored database passed
+`PRAGMA integrity_check`, retained the same 135 message hashes and ten media
+checksums as the source archive, and had six conversations and ten valid media
+references. Without the exporter on `PATH`, its local browser returned the
+home page, a real-message search result, and a media file with the expected
+checksum.
+
+These samples do **not** establish full-history completeness, behavior for
+unavailable iCloud downloads, stability under renamed contacts or duplicate
+source messages, or safety of deleting Apple/iCloud data. Other hidden
+attachment types may need retention; classify them by type and context rather
+than by `hide_attachment` alone. The TXT export lacks Apple message GUIDs.
+Compare complete
+source/export/archive counts and all required media across the full history
+before relying on the archive for storage reduction.
+
 ## Implementation status
 
-“Tested (synthetic)” means regression tests use fabricated exports and media. No real Mac archive has been validated.
+“Tested (synthetic)” means regression tests use fabricated exports and media.
+“Tested (limited real sample)” refers only to the isolated participant-filtered
+exports and restore drill described above. Apple's metadata confirms iMessage
+transport for part of the first sample.
 
 | Capability | Current behavior | Target behavior | Status |
 | --- | --- | --- | --- |
 | Local SQLite and keyword search | Store, FTS5 triggers, web UI exist | Reuse | Implemented |
 | iMessage text export/import | CLI invokes copy-mode exporter; parser imports flat text | Reuse with format validation | Implemented |
-| Unchanged-export skip | Content hash; `--full` reparses and rechecks media | Keep safe optimization | Tested (synthetic) |
-| Append-only messages | Inserts new hashes, retains prior rows and omitted conversations | Preserve existing content | Tested (synthetic) |
+| Unchanged-export skip | Content hash; `--full` reparses and rechecks media | Keep safe optimization | Tested (limited real sample) |
+| Independent repeat export | Fresh export matched original paths and bytes; forced reimport added zero messages | Avoid duplicates across export cycles | Tested (limited real sample; same exporter version and date window) |
+| Append-only messages | Inserts new hashes, retains prior rows and omitted conversations | Preserve existing content | Tested (limited real sample) |
 | Conversation identity | `(source, export filename)` | Stable across supported export changes | Unverified |
 | Apple message GUID | Not carried by text parser/store | Use if available and stable | Unverified |
-| Independent attachment retention | Referenced bytes copied to `<data_dir>/media/imessage` with SHA-256 names; legacy references migrate when bytes remain | Preserve verified bytes in archive-owned files | Tested (synthetic) |
+| Independent attachment retention | Referenced bytes copied to `<data_dir>/media/imessage` with SHA-256 names; legacy references migrate when bytes remain | Preserve verified bytes in archive-owned files | Tested (limited real sample) |
 | Providers refresh | Preserves legacy references before replacing managed export; append import retains existing rows | Preserve existing media and content | Tested (synthetic) |
 | Providers Disable | No iMessage control; request and store deletion guard reject it | Prevent iMessage archive loss | Tested (synthetic) |
-| DB backup | New snapshots include DB, config, and retained media checksums | Back up DB plus permanent media | Tested (synthetic) |
-| Offline browsing | Local UI/search with existing DB and media | Tested offline archive after source deletion | Unverified |
-| Real-history completeness | Fixture-level tests only in assessment | Validate actual counts, media, search, restore | Unverified |
+| DB backup | New snapshots include DB, config, and retained media checksums | Back up DB plus permanent media | Tested (limited real sample) |
+| Offline browsing | Local UI/search with existing DB and media | Tested offline archive after source deletion | Tested (limited real sample; disposable source omission) |
+| Real-history completeness | Two limited participant-filtered samples; the first includes 106 iMessage messages and nine reactions, while the corrected phone's 15 messages were RCS/SMS | Validate actual counts, media, search, restore across full history and iMessage conversations | Unverified |
 
 ## Architecture decision log
 
@@ -154,4 +343,4 @@ To generate an export with the existing CLI, set an iMessage root and run `./bin
 | **4 — Repeatable archival workflow** | Validated archive and backups. | Document manual export → import → verify → backup procedure using current commands; automate only after stable operation. | Two or more real cycles yield only new records, preserve old bytes, and restore successfully. |
 | **5 — iCloud storage reduction** | Verified complete, independent archive plus tested DB/media backup and restore. | Document a cautious, separately validated Apple Messages deletion procedure. | Selected source deletion leaves archive counts, searches, and media unchanged while active Messages synchronization continues. |
 
-**Next task:** Run Stage 3 against disposable, non-sensitive real exports. Audit message identities, conversation names, attachment counts and bytes, offline search, and a separate-copy restore before relying on the archive for any iCloud deletion decision.
+**Next task:** Compare source, export, and archive counts and media across the full history, investigate any discrepancies, and test more identity edge cases before relying on the archive. Keep Apple Messages/iCloud unchanged until complete-history and recovery checks pass.
