@@ -492,8 +492,15 @@ databases and file indexes. An additional pass found 76 card/location part
 observations with 10 uncataloged distinct hashes, plus an inline PNG under a
 blank MIME type. Blank-type indexed files contributed no further unique
 uncataloged bytes; two blank-type rows had neither indexed nor inline bytes.
-In total, **75 distinct uncataloged part files (14,621,420 bytes)** are in
-local staging. This is reconstruction staging, not permanent archive storage.
+The first pass staged **75 distinct uncataloged part files (14,621,420 bytes)**.
+A second pass retained two distinct inline PNG variants whose rows also have
+different indexed files. The complete private
+`black-seagate-legacy-mms-full-part-catalog.json` records 835 payload
+observations, 201 distinct SHA-256 hashes, and two blank-MIME rows without
+available payloads. Of the 201 hashes, 124 are cataloged with byte-verified
+permanent media and **77** are not. All 77 uncataloged files
+(**14,647,778 bytes**) are hash-verified in local staging. This is
+reconstruction staging, not permanent archive storage.
 
 The 64 uncataloged hashes occur in 156 part observations tied to 94
 snapshot-specific parent rows. For 91 of those parents, no non-group archive
@@ -517,6 +524,15 @@ to the configured archive in this pass. Private metadata-only reports are
 `reconstruction/2026-11-07-seagate/reports/black-seagate-legacy-mms-parts.json`,
 `black-seagate-legacy-mms-cards.json`, and
 `black-seagate-legacy-mms-untyped.json` in the same directory.
+After accounting for both indexed and inline variants, the uncataloged parts
+come from 126 snapshot-specific parent observations that collapse to 69
+date/flag/normalized-handle keys. Twenty-six recur across snapshots without
+a full-payload or text-part digest conflict. Sixty-seven have direction flags
+2/3; two have nonstandard flags and remain held. None of the 67 matches an
+archive non-group message by exact timestamp, direction, and one-to-one
+handle after the Nexus merge, and none of the 77 staged hashes matches Nexus
+media. Near duplicates, text/subject representation, preview semantics, and
+exclusions still require isolated validation before importing legacy MMS.
 
 The configured archive now has **66,413 iMessage records**, up from 56,287, with no duplicate `source_guid` groups and SQLite integrity `ok`. Of **13,359** cataloged attachment GUIDs, **11,728** have bytes and **1,631** remain unavailable, including **843 visible** assets. `msgbrowse doctor` reported zero problems and five warnings for optional, unconfigured sources and semantic embeddings. The pre-import backup is `snapshot-20261107-051619`; the post-import backup is `snapshot-20261107-052840` under `/Users/drew_wilkins/Documents/Messages/archive-backups`. The latter backup's SQLite database passed integrity and contains 66,413 messages, but the snapshot has not yet been restored as a separate Seagate-specific drill. Private exports, normalized copies, and logs are under `/Users/drew_wilkins/Documents/Messages/reconstruction/2026-11-07-seagate`.
 
@@ -834,7 +850,7 @@ an owner-defined brand rule, but per-GUID rule attribution was not retained.
 Those 49 were not forced
 into the archive.
 
-The configured archive now has **68,159 messages** and **14,702** cataloged
+After the Black WD pass, the configured archive had **68,159 messages** and **14,702** cataloged
 attachment GUIDs, of which **13,631** have retained bytes and **1,071** do
 not. The three Black WD imports added **1,567** messages and **196** native
 attachment variants. All **124** distinct new permanent asset paths exist and
@@ -896,10 +912,10 @@ raw-address records, 303 have
 inline media. Their **278** distinct inline assets total **129,486,695 bytes**
 and none matched bytes in current permanent media. This corrects the earlier
 878 estimate, which used serialized XML hashes and counted representation
-differences as separate messages. No Nexus message or media has been merged
-into the configured archive: Android records have no Apple GUID, and the
-isolated SMS prototype does not yet link MMS or provide a supported app source.
-The two encrypted iPhone backups and Nexus import remain separate
+differences as separate messages. At this initial audit point, Nexus message
+and media import remained isolated; the later checked merge is recorded below.
+Android records have no Apple GUID, so their source-specific identity must
+remain separate. The two encrypted iPhone backups remain separate
 reconstruction work. The active Apple Messages database and iCloud were not
 modified.
 
@@ -983,8 +999,7 @@ metadata review is `reconstruction/2026-11-07-black-wd-various/reports/nexus-con
 No cross-source contact link was made from a label or phone number alone.
 
 The reconstruction-only [`scripts/nexus_checked_merge.py`](../scripts/nexus_checked_merge.py)
-created a private plan against the configured archive but did not apply it
-there. It checks the full source XML digest, current exclusions and overlap
+created a private plan against the configured archive. It checks the full source XML digest, current exclusions and overlap
 classification, unchanged preexisting messages and attachments, exclusion
 ledger, Nexus rows, and media SHA-256. Applying requires an explicit saved
 plan and a fresh SQLite-only checkpoint; it never overwrites existing media.
@@ -992,10 +1007,24 @@ Applied to a separate validation copy, it added 5,489 messages, 284
 attachment references, and 275 media files. All 5,489 were FTS-indexed;
 SQLite integrity, foreign keys, old-row digests, and media hashes passed.
 A repeated plan added zero, and a stale plan was rejected before a checkpoint
-was made. The configured archive remains at 68,159 messages with zero Nexus
-rows. Black WD is not needed for this local Nexus step. The older Seagate
+was made. Black WD is not needed for this local Nexus step. The older Seagate
 `msg_pieces` audit now has hash-verified local source-database and uncataloged
-media copies. Neither source has been merged into the configured archive.
+media copies; legacy MMS remains unmerged.
+
+### Configured Nexus merge (2026-11-07)
+
+The saved Nexus plan was rechecked against the unchanged configured archive,
+then applied with a fresh 44 MB SQLite-only checkpoint at
+`/Users/drew_wilkins/Documents/Messages/archive-backups/nexus-premerge-20261107-213938.sqlite`.
+The append added **5,489 messages**, **284 attachment references**, and **275
+media files** (127,611,260 bytes) without overwriting existing rows or media.
+The configured archive now has **73,648 messages**, including 5,489 Nexus
+SMS/MMS messages; 1,335 iMessage records remain in `orphaned`. Every copied
+Nexus file matched its SHA-256 filename, all Nexus messages appear in FTS,
+SQLite integrity is `ok`, and foreign-key violations are zero. A fresh plan
+found **zero** additional Nexus messages. The checkpoint covers SQLite only;
+the full media backup and independent restore remain future work. The active
+Apple Messages database and iCloud were not changed.
 
 ### Retained `.ichat` first-pass audit (2026-11-07)
 
@@ -1083,7 +1112,7 @@ transport for part of the first sample.
 | Providers Disable | No iMessage control; request and store deletion guard reject it | Prevent iMessage archive loss | Tested (synthetic) |
 | DB backup | New snapshots include DB, config, and retained media checksums | Back up DB plus permanent media | Tested (seven-source isolated archive, separate restore) |
 | Offline browsing | Local UI/search with existing DB and media | Browse without exporter or source data | Tested (restored seven-source archive over loopback without exporter; source deletion only in limited sample) |
-| Real-history completeness | The current archive has 68,159 messages after selected Drew-owned Black WD sources; the 124 newly added permanent asset paths passed SHA-256 checks, while the last full permanent-file check covered the earlier Blue Seagate state | Reconcile missing bytes, legacy MMS/group rows, Nexus XML, encrypted backups, and source omissions before iCloud deletion | Partial |
+| Real-history completeness | The current archive has 73,648 messages after the checked Nexus merge; its 275 new media files passed SHA-256 checks, while the last full permanent-iMessage-file check covered the earlier Blue Seagate state | Reconcile missing bytes, legacy MMS/group rows, encrypted backups, and source omissions before iCloud deletion | Partial |
 
 ## Architecture decision log
 
