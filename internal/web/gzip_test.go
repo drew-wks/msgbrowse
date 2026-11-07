@@ -140,7 +140,7 @@ func TestStaticETagRevalidation(t *testing.T) {
 	if tag == "" || !strings.HasPrefix(tag, `"`) || !strings.HasSuffix(tag, `"`) {
 		t.Fatalf("ETag = %q, want a quoted strong tag", tag)
 	}
-	if cc := first.Header().Get("Cache-Control"); !contains(cc, "max-age=3600") {
+	if cc := first.Header().Get("Cache-Control"); cc != "public, max-age=0, must-revalidate" {
 		t.Errorf("Cache-Control = %q", cc)
 	}
 
@@ -155,8 +155,11 @@ func TestStaticETagRevalidation(t *testing.T) {
 	if got := rec.Header().Get("ETag"); got != tag {
 		t.Errorf("304 ETag = %q, want %q", got, tag)
 	}
-	if cc := rec.Header().Get("Cache-Control"); !contains(cc, "max-age=3600") {
+	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=0, must-revalidate" {
 		t.Errorf("304 lost Cache-Control (%q)", cc)
+	}
+	if cc := get(t, srv, "/static/sidebar.js").Header().Get("Cache-Control"); !contains(cc, "max-age=3600") {
+		t.Errorf("script Cache-Control = %q", cc)
 	}
 
 	// A weak-compare match and a wildcard also revalidate.

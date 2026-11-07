@@ -60,7 +60,7 @@ that omission as absent input for the current pass, not as an instruction to
 delete the already archived row or attachment bytes.
 
 Optional iMessage exclusion rules run after TXT parsing and before attachment
-retention and `AppendIMessageMessages`. They may omit five- or six-digit sender
+retention and `AppendIMessageMessages`. They may omit four- to six-digit sender
 addresses (including exporter-added names in parentheses), `(smsfp)` and
 `(smsft)` filtered-SMS conversations, incoming messages with the exact phrase
 `appointment reminder`, entire named conversations with an owner-sent whole-message
@@ -92,7 +92,7 @@ The CLI creates `<data_dir>/msgbrowse.sqlite`; `data_dir` defaults to `./data`. 
 
 | Entity | Current identity and relationship |
 | --- | --- |
-| Conversation | `conversations.id`; unique `(source, name)`. For iMessage, `name` comes from the export filename. A paired GUID import keeps a previously archived message in its first conversation when a later export renames the file; it avoids creating an empty conversation when every GUID is already present. New messages under a changed filename can still create a separate conversation, so full thread reconciliation remains open. ([`internal/imessage/import.go`](../internal/imessage/import.go); [`internal/store/imessage_archive.go`](../internal/store/imessage_archive.go).) |
+| Conversation | `conversations.id`; unique `(source, name)`. For iMessage, `name` initially comes from the export filename. A paired GUID import keeps a previously archived message in its first conversation when a later export renames the file; it avoids creating an empty conversation when every GUID is already present. The explicit metadata-only orphan reassignment can change that conversation reference when a later Apple database proves a unique GUID-to-chat link. New messages under changed filenames can still split threads, so general thread reconciliation remains open. ([`internal/imessage/import.go`](../internal/imessage/import.go); [`internal/store/imessage_archive.go`](../internal/store/imessage_archive.go); [`scripts/imessage_reassign_orphaned.py`](../scripts/imessage_reassign_orphaned.py).) |
 | Message | `messages.id` is a SQLite row ID; globally unique `messages.hash` still hashes source, export conversation, normalized second-resolution timestamp, sender, body, and occurrence sequence. For paired iMessage imports, `messages.source_guid` is Apple's stable GUID and is uniquely indexed. A later export with the same GUID reuses the first row even if the filename, body, or timestamp changes; later media, links, and reactions append. A TXT-only import still uses the legacy content hash. ([`internal/signal/message.go`](../internal/signal/message.go); [`internal/imessage/guid.go`](../internal/imessage/guid.go); [`internal/store/imessage_archive.go`](../internal/store/imessage_archive.go); [`internal/store/schema.go`](../internal/store/schema.go).) |
 | Attachment | `attachments.message_id` references a message with `ON DELETE CASCADE`; rows store kind, relative path, and original name, **not file bytes**. iMessage text attachment lines are recognized by a path/extension heuristic. ([`internal/store/schema.go`](../internal/store/schema.go), lines 92–99; [`internal/imessage/parser.go`](../internal/imessage/parser.go), lines 58–76 and 221–244.) |
 | Native attachment catalog | `imessage_attachment_observations` records each source attachment GUID linked to an archived message, including missing files. `imessage_source_assets` records each retained byte variant by source attachment GUID and permanent path. Visible files also appear in `attachments`; hidden opaque payloads remain in the source-assets table and permanent media tree without gallery cards. ([`internal/imessage/source_assets.go`](../internal/imessage/source_assets.go); [`internal/store/imessage_archive.go`](../internal/store/imessage_archive.go); [`internal/store/schema.go`](../internal/store/schema.go).) |
@@ -557,11 +557,130 @@ review found 14 more numeric sender threads with explicit Verizon, Lowe's, or
 AT&T branding in archived messages. Their 52 messages were removed in another
 ledger-first transaction: 41 had Apple GUIDs and 11 had only content hashes.
 All 14 numeric addresses now have exact rules in the local config. They had no
-attachment rows. The final archive has **65,677 messages**, **888 ledger
+attachment rows. At that cleanup stage, the archive had **65,677 messages**, **888 ledger
 entries**, SQLite integrity `ok`, and an FTS row count of 65,677. The final
 snapshot is `snapshot-20261107-135038`; its SQLite copy was checked for
 integrity and matching counts. Earlier snapshots still retain excluded content
 and need the owner-directed cleanup repeated if restored.
+
+## Orphaned chat reassignment (2026-11-07)
+
+`imessage-exporter` puts a message in `orphaned.txt` when its source database
+has no `chat_message_join` entry for that message. The sender may still resolve
+to a contact name; a name alone does not identify a chat, especially for group
+and outgoing messages. The append-only GUID importer keeps the first archived
+conversation reference when another snapshot later supplies a chat link.
+
+The current Mac's `chat.db` was read with SQLite `mode=ro` and `query_only`.
+A metadata-only audit matched **5,913** of the configured archive's 14,737
+orphaned GUIDs to exactly one current Apple chat each. There were 120 affected
+source chats. For 5,191 messages, other archived GUIDs in the same Apple chat
+identified one existing archive conversation. For 129, Apple's exact unique
+`chat_identifier` identified an existing conversation. The remaining 593
+belonged to 56 Apple chats with no unambiguous existing archive destination;
+the recovery created separate conversations named with those source chat
+identifiers. It did not choose a destination from sender or contact names.
+
+Before the move, `snapshot-20261107-141935` captured the database, config, and
+permanent media. All 6,926 manifest file checksums were verified; the snapshot
+database passed SQLite integrity and foreign-key checks and held 65,677
+messages, including 14,737 orphaned. The checked transaction changed only
+conversation references for the 5,913 selected message rows and their
+attachment, link, and reaction rows. The post-move comparison with that backup
+found identical message IDs, hashes, Apple GUIDs, attachment IDs and paths,
+link IDs and URLs, and reaction IDs and hashes. Message, attachment, link, and
+reaction row counts were unchanged; all 6,924 live permanent media files still
+matched the pre-move backup checksums. FTS still had 65,677 entries. SQLite
+integrity, foreign keys, child conversation references, and browser access
+passed. `orphaned` now has **8,824** messages. No message or media bytes were
+deleted, and Apple's database was not modified.
+
+The repeatable [`scripts/imessage_reassign_orphaned.py`](../scripts/imessage_reassign_orphaned.py)
+defaults to a dry run and requires the reviewed move count for `--apply`.
+Future source snapshots can supply more GUID-to-chat links; rerun the audit
+against each read-only source after a consistent SQLite checkpoint. This does not infer
+thread membership for the 8,824 remaining records. Many still have a sender
+label, and none should be classified as spam or deleted solely because they
+remain orphaned. Normal TXT-only imports do not carry Apple GUIDs and can still
+have overlap ambiguity after conversation reassignment; use paired GUID imports
+for historical snapshots and review their result.
+
+### Multi-snapshot orphan review and four-digit short codes (2026-11-07)
+
+A later review found that the four-digit sender `7535` had passed the earlier
+five/six-digit rule. The current ingest rule now covers four through six digits,
+including exporter-added parenthetical names. A verified full backup,
+`snapshot-20261107-144100`, contains the pre-review database, config, and all
+retained media; all 6,926 manifest checksums, SQLite integrity, and foreign
+keys passed. Ten previously archived four-digit sender messages were recorded
+in the exclusion ledger before removal: six with Apple GUIDs in `orphaned` and
+four legacy rows with content hashes in a named short-code conversation. They
+had no attachment rows. Four associated link rows were removed with their
+messages. The ledger prevents those same identities from returning on import.
+
+The reassignment audit now accepts multiple read-only source databases and
+unions their GUID-to-chat evidence. It skips any GUID whose destination or
+group status conflicts between snapshots. The July 2024 iPhone, July 2020 Mac,
+and April 2022 Mac snapshots supplied 2,283 consistent destinations; all were
+moved in one checked transaction. Ninety-four conflicting GUIDs and 6,447
+without a verified chat link were left untouched at audit time. The current
+November 2026 Mac and October 2025 iPhone snapshots offered no further moves.
+The November 2022 Gail Wilkins and Muff Harner examples have no chat link in
+the available source snapshots that contain them, so their known sender names
+do not justify assigning them to a conversation.
+
+The archive now has **65,667 iMessage messages**, **898 exclusion-ledger
+entries**, and **6,535 messages in `orphaned`**. Comparison with the verified
+backup found exactly ten removed message IDs and 2,283 changed conversation
+references; all other message IDs, hashes, and GUIDs remained stable. No
+attachment or reaction identities changed. FTS has 65,667 rows, SQLite
+integrity and foreign keys pass, and no four-digit numeric sender remains in
+the archive. Among the remaining orphaned messages, 3,368 have a non-owner
+sender label containing letters. Such a label identifies a sender, but does
+not prove the message's original chat, especially for groups and outgoing
+messages. Future source snapshots may provide additional verified links.
+
+### Shared chat identifiers and remaining orphaned messages (2026-11-07)
+
+A later audit included the copied April 2022 iPhone database alongside the five
+previously checked sources. It first found **170** messages with one consistent
+GUID-linked destination and moved them to six existing conversations. The
+reassignment tool then exposed a missed case: Apple can repeat a
+`chat_identifier` across distinct chat rows, but other already archived GUIDs
+in the *same source chat row* can still identify exactly one archive
+conversation. The tool now accepts that stronger evidence before requiring a
+unique identifier. It also checks every source's chat links for contradictory
+named destinations, even when that source's own move plan was skipped. Fifteen
+additional candidates failed that cross-source check.
+
+The revised six-source audit found **4,290** further moves into 11 existing
+conversations. A repeat audit then found six more moves enabled by the newly
+assigned same-chat evidence; the next pass found zero. At the fixed point,
+**109** conflicting source destinations and **1,960** without verified chat
+evidence remained. Small, consistent SQLite-only checkpoints were made before
+the first and second transactions; the third six-message move used the second
+checkpoint. No new full media snapshot was made because these moves did not
+change media bytes. The transactions changed only conversation references for
+4,296 message rows and their child attachment, link, and reaction references.
+Before/after comparison found identical message IDs, hashes, GUIDs, text,
+attachment paths, link URLs, and reaction identities. All six table counts
+matched; SQLite integrity, foreign keys, and child conversation references
+passed. Synthetic regression tests cover shared identifiers and a
+contradiction hidden by a skipped source plan.
+
+The configured archive still has **65,667 messages**, with **2,069 in
+`orphaned`**. Of those, 946 are labeled “Me,” 1,005 have a non-owner name
+containing letters, and 118 have numeric or other sender labels. Most remaining
+records (1,850) date to 2022. Among the named examples reviewed, 307 Gail
+Wilkins, 120 Muff Harner, two labeled Ji Son (identified by the owner as
+Ji Hyun Son), five Harvey Kipnis, four David Huang, and 34 Chris DrumPriest
+Theberge messages remain. The available snapshots do not supply a
+nonconflicting chat assignment for them; the November 2022
+examples have no verified chat link. Contact familiarity and chronological
+adjacency do not establish group membership or the destination of outgoing
+messages. A later source snapshot with intact chat joins, especially after
+April 2022, may resolve more. Do not treat this residual bucket as spam or
+delete it solely because its source chat is unknown.
 
 ## Implementation status
 
@@ -577,7 +696,7 @@ transport for part of the first sample.
 | Unchanged-export skip | Content hash; `--full` reparses and rechecks media | Keep safe optimization | Tested (limited real sample) |
 | Independent repeat export | Fresh export matched original paths and bytes; forced reimport added zero messages | Avoid duplicates across export cycles | Tested (limited real sample; same exporter version and date window) |
 | Append-only messages | TXT-only imports use content hashes; paired imports reuse Apple GUIDs and never delete omitted messages | Preserve existing content | Tested (seven-source isolated reconstruction) |
-| Conversation identity | First observed export filename labels a message; changed names can still split new messages across conversation rows | Reconcile source thread identity across snapshots | Partial |
+| Conversation identity | First observed export filename labels a message; explicit source-metadata recovery moved 12,662 orphaned GUIDs to verified Apple chats without changing message IDs or media | Reconcile the remaining 2,069 orphaned records and split threads across snapshots | Partial |
 | Apple message GUID | Paired exporter 5.0.1 HTML supplies GUIDs; nullable unique `source_guid` persists them | Preserve identity across overlapping snapshots | Tested (seven-source isolated reconstruction; equal-date ties remain) |
 | Independent attachment retention | TXT and native source scans copy bytes to `<data_dir>/media/imessage` with SHA-256 names; later snapshots can fill gaps by attachment GUID | Preserve every available byte variant and report unavailable GUIDs | Tested (11,728 available attachment GUIDs retained; 1,631 unavailable after Seagate) |
 | HEIC browser previews | `imessage-import` runs the existing local converter; `msgbrowse media` rebuilds JPEG cache after restore | Show HEIC images in gallery and transcript while retaining originals | Tested (limited real sample; four local HEIC files) |
@@ -586,7 +705,7 @@ transport for part of the first sample.
 | Providers Disable | No iMessage control; request and store deletion guard reject it | Prevent iMessage archive loss | Tested (synthetic) |
 | DB backup | New snapshots include DB, config, and retained media checksums | Back up DB plus permanent media | Tested (seven-source isolated archive, separate restore) |
 | Offline browsing | Local UI/search with existing DB and media | Browse without exporter or source data | Tested (restored seven-source archive over loopback without exporter; source deletion only in limited sample) |
-| Real-history completeness | The seven-source GUID union and selected Drew-labeled 2010–2014 backups now yield 66,413 records; available new media hash-checks | Reconcile missing bytes, legacy MMS/group rows, and source omissions before iCloud deletion | Partial |
+| Real-history completeness | The seven-source GUID union and selected Drew-labeled 2010–2014 backups reached 66,413 records before owner exclusions; the current archive has 65,667, and available new media hash-checks | Reconcile missing bytes, legacy MMS/group rows, and source omissions before iCloud deletion | Partial |
 
 ## Architecture decision log
 

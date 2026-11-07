@@ -21,6 +21,7 @@ func TestExclusionsBeforeRetentionAndAppend(t *testing.T) {
 		}
 	}
 	writeExport("75243", "May 20, 2020  9:10:11 AM\n75243\nYour verification code is 123456\nattachments/AB/CD/secret.jpeg\n\n")
+	writeExport("7535", "May 20, 2020  9:10:10 AM\n7535\nSynthetic account notice\n\n")
 	writeExport("75243(Plaid)", "May 20, 2020  9:10:12 AM\n75243(Plaid)\nAnother code\n\n")
 	writeExport("+15551110000(smsfp)", "May 20, 2020  9:10:13 AM\n+15551110000(smsfp)\nPromotion\n\nMay 20, 2020  9:10:14 AM\nMe\nReply\n\n")
 	writeExport("+15552220000(smsft)", "May 20, 2020  9:10:15 AM\n+15552220000(smsft)\nTransaction\n\n")
@@ -35,8 +36,8 @@ func TestExclusionsBeforeRetentionAndAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Messages != 10 || preview.Excluded != 8 || preview.Eligible != 2 ||
-		preview.ByRule[ShortCodeRule] != 2 || preview.ByRule[FilteredSMSRule] != 4 || preview.ByRule[EmailReminderRule] != 1 ||
+	if preview.Messages != 11 || preview.Excluded != 9 || preview.Eligible != 2 ||
+		preview.ByRule[ShortCodeRule] != 3 || preview.ByRule[FilteredSMSRule] != 4 || preview.ByRule[EmailReminderRule] != 1 ||
 		preview.ByRule["friend-reminder"] != 1 {
 		t.Fatalf("unexpected preview counts: %+v", preview)
 	}

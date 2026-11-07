@@ -145,7 +145,7 @@ with one click. See the
 
 ### Exclude unwanted iMessage texts before import
 
-The following settings opt in to ingest filters. A short code is five or six
+The following settings opt in to ingest filters. A short code is four to six
 digits in the export's sender or conversation field, optionally followed by an
 exporter-added name in parentheses. Ordinary phone numbers are unaffected.
 `(smsfp)` and `(smsft)` conversation suffixes are separately excluded, including
@@ -203,6 +203,49 @@ overlapping GUID-aware imports from recreating those messages. The Apple Message
 that category require an explicit source-metadata review. The local archive's
 known GUIDs were reviewed against Apple's read-only `chat.db` on 2026-11-07;
 see [validation results](docs/ARCHITECTURE.md#owner-directed-exclusion-cleanup-2026-11-07).
+
+### Reassign messages from the exporter’s orphaned bucket
+
+The exporter puts a message in `orphaned.txt` when its source database has no
+chat link for that message. A sender name can still be present. A later Apple
+database may provide a unique chat link for the same message GUID, while the
+append-only archive still holds the message under its first imported label.
+The metadata-only recovery script audits those GUIDs against one or more
+read-only Apple `chat.db` snapshots, then reassigns only messages with one
+nonconflicting source chat and archive destination. It does
+not read message text, delete messages, or modify Apple's database:
+
+```sh
+DATA_DIR="$HOME/msgbrowse-data"
+python3 scripts/imessage_reassign_orphaned.py \
+  --source-db "$HOME/Library/Messages/chat.db" \
+  --archive-db "$DATA_DIR/msgbrowse.sqlite"
+```
+
+Review the aggregate dry-run count and stop the local server before
+applying. A metadata-only move needs a consistent SQLite checkpoint, not a
+new copy of permanent media. Verify that checkpoint and pass the reviewed
+move count to guard against a source change:
+
+```sh
+DATA_DIR="$HOME/msgbrowse-data"
+CHECKPOINT="$DATA_DIR/orphan-pre-$(date +%Y%m%d-%H%M%S).sqlite"
+sqlite3 "$DATA_DIR/msgbrowse.sqlite" ".backup '$CHECKPOINT'"
+sqlite3 -readonly "$CHECKPOINT" "PRAGMA integrity_check"
+python3 scripts/imessage_reassign_orphaned.py \
+  --source-db "$HOME/Library/Messages/chat.db" \
+  --archive-db "$DATA_DIR/msgbrowse.sqlite" \
+  --apply --expect-moves COUNT_FROM_DRY_RUN
+```
+
+The script keeps message IDs, GUIDs, attachment paths, links, and reactions;
+it updates their conversation references in one checked SQLite transaction.
+When no existing archive conversation has unambiguous GUID evidence, it uses
+Apple's unique chat identifier for a separate recovered conversation rather
+than guessing from a sender name. Unlinked messages stay in `orphaned` for
+later review. Paired GUID imports are the reliable way to identify overlap
+across historical exports; TXT-only exports cannot always resolve the same
+message after a conversation reassignment.
 
 ### Build and create a local iMessage archive
 
@@ -274,7 +317,7 @@ For the next mounted source, use a new label, keep the existing reconstruction
 workspace for staging, and set `DATA_DIR` to the configured archive path. The
 former `/Users/drew_wilkins/Documents/Messages/data` remains a rollback copy.
 The Seagate import reached 66,413 messages; after owner-directed exclusions,
-the configured archive has 65,677. Another 1,631
+the configured archive has 65,667 after the four-digit short-code cleanup. Another 1,631
 cataloged attachment identifiers still lack bytes in every source examined;
 do not delete Apple/iCloud copies on the basis of the current coverage.
 

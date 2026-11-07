@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}}</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=2">
   {{/* theme.js runs before paint to apply the saved theme (no FOUC); all
        scripts are self-hosted so they load under script-src 'self'.
        sidebar.js powers the live "Filter conversations" box;
@@ -255,7 +255,7 @@
             <span class="min-w-0 flex-1">
               <span class="flex items-baseline justify-between gap-2">
                 <span class="conv-name truncate">{{humanName .Conv.Name}}</span>
-                {{if .Conv.LastTS}}<time class="conv-last-date font-mono shrink-0" datetime="{{dateKey .Conv.LastTS}}" title="Latest message: {{dateLabel .Conv.LastTS}}">{{dateKey .Conv.LastTS}}</time>{{end}}
+                {{if .Conv.LastTS}}<time class="conv-last-date shrink-0" datetime="{{dateKey .Conv.LastTS}}" title="Latest message: {{dateLabel .Conv.LastTS}}">{{dateKey .Conv.LastTS}}</time>{{end}}
               </span>
               <span class="conv-preview truncate">
                 {{- if .Conv.LastSender}}<span class="conv-preview-sender">{{humanName .Conv.LastSender}}:</span> {{end}}{{.Conv.LastPreview}}

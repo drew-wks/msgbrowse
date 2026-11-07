@@ -790,10 +790,15 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// cacheStatic adds a modest cache lifetime to embedded static assets.
+// cacheStatic keeps scripts cached but revalidates CSS on every page load.
+// The stylesheet changes during local rebuilds while its path stays fixed.
 func cacheStatic(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "public, max-age=3600")
+		if strings.TrimPrefix(r.URL.Path, "/") == "app.css" {
+			w.Header().Set("Cache-Control", "public, max-age=0, must-revalidate")
+		} else {
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

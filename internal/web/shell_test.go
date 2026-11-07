@@ -75,7 +75,7 @@ func TestSidebarCountInCircleAndLatestDate(t *testing.T) {
 	for _, want := range []string{
 		`class="avatar-mono avatar-count`,
 		`<span class="sr-only">` + commaInt(int64(conv.MessageCount)) + ` messages</span>`,
-		`<time class="conv-last-date font-mono shrink-0" datetime="` + dateKey(conv.LastTS) + `"`,
+		`<time class="conv-last-date shrink-0" datetime="` + dateKey(conv.LastTS) + `"`,
 		`>` + dateKey(conv.LastTS) + `</time>`,
 	} {
 		if !strings.Contains(row, want) {

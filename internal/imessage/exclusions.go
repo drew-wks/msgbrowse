@@ -26,7 +26,7 @@ const (
 	OptOutThreadRule        = "owner_opt_out_thread"
 )
 
-var shortCodeRe = regexp.MustCompile(`^[0-9]{5,6}(?:\s*\([^)]*\))?$`)
+var shortCodeRe = regexp.MustCompile(`^[0-9]{4,6}(?:\s*\([^)]*\))?$`)
 var filteredSMSRe = regexp.MustCompile(`(?i)\(smsf[pt](?:_[a-z0-9_]+)?\)$`)
 var emailAddressRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
