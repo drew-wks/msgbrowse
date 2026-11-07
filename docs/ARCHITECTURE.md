@@ -533,6 +533,15 @@ archive non-group message by exact timestamp, direction, and one-to-one
 handle after the Nexus merge, and none of the 77 staged hashes matches Nexus
 media. Near duplicates, text/subject representation, preview semantics, and
 exclusions still require isolated validation before importing legacy MMS.
+A further parent-level review held four of the 69 keys (overlapping reasons:
+two nonstandard direction flags, two without a unique existing contact
+identifier, one nonempty subject requiring display validation, and one
+possible near archive duplicate). Sixty-five keys are provisional, not yet
+verified for import. Standard-flag keys did not match current explicit
+conversation, short-code, opt-out, or exact `appointment reminder` rules in
+the decoded text parts; Apple's historical Unknown Senders flag remains
+unavailable in these source records. No legacy MMS row or payload was added
+to the configured archive.
 
 The configured archive now has **66,413 iMessage records**, up from 56,287, with no duplicate `source_guid` groups and SQLite integrity `ok`. Of **13,359** cataloged attachment GUIDs, **11,728** have bytes and **1,631** remain unavailable, including **843 visible** assets. `msgbrowse doctor` reported zero problems and five warnings for optional, unconfigured sources and semantic embeddings. The pre-import backup is `snapshot-20261107-051619`; the post-import backup is `snapshot-20261107-052840` under `/Users/drew_wilkins/Documents/Messages/archive-backups`. The latter backup's SQLite database passed integrity and contains 66,413 messages, but the snapshot has not yet been restored as a separate Seagate-specific drill. Private exports, normalized copies, and logs are under `/Users/drew_wilkins/Documents/Messages/reconstruction/2026-11-07-seagate`.
 
