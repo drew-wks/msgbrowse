@@ -50,6 +50,20 @@ export can omit a message deleted from Apple Messages. The importer treats
 that omission as absent input for the current pass, not as an instruction to
 delete the already archived row or attachment bytes.
 
+Optional iMessage exclusion rules run after TXT parsing and before attachment
+retention and `AppendIMessageMessages`. They may omit five or six digit sender
+addresses, incoming email-address messages containing `appointment reminder`,
+or explicitly named export conversations and phrases. `imessage-import
+--preview-exclusions` parses the export and reports aggregate rule counts
+without opening the archive database or copying media. The policy is included
+in incremental ingest state, so changing rules rescans unchanged TXT files.
+Adding an exclusion cannot remove previously archived rows or bytes. Export
+staging still contains omitted messages until separately cleaned. Apple's
+“Unknown Senders” classification is not present in the parsed TXT record; it
+cannot currently be used as an automatic filter. A resolved contact name can
+also hide a short code or email address from the address-based rules. No
+full-history exclusion accuracy has yet been validated.
+
 **Current:** `msgbrowse export` invokes `imessage-exporter -f txt -c clone -o <imessage_archive_root>`; this normal path does not open `chat.db` ([`internal/cli/export.go`](../internal/cli/export.go), `exportIMessage`). The importer scans top-level `<ChatName>.txt` files, preserves legacy attachment references before source replacement, copies available media to permanent storage, and inserts newly observed messages without deleting old rows ([`internal/imessage/import.go`](../internal/imessage/import.go), `Run` and `importConversation`; [`internal/imessage/media.go`](../internal/imessage/media.go); [`internal/store/imessage_archive.go`](../internal/store/imessage_archive.go)). The Providers flow still exports into staging and swaps the managed export root, but retains referenced media first ([`internal/onboard/runner.go`](../internal/onboard/runner.go), `execute`; [`internal/onboardsvc/onboardsvc.go`](../internal/onboardsvc/onboardsvc.go), `PreserveBeforeReplacement`).
 
 **Target beyond the limited Stage 3 sample:** Validate additional iMessage conversations and full-history completeness, test recovery under more failure modes, and establish a safe manual deletion procedure. Message GUID support and identity ambiguity remain open; source deletions must never travel back into the historical archive.

@@ -203,7 +203,9 @@ func (im *storeImporter) Import(ctx context.Context, src, root string) (onboard.
 	case source.Signal:
 		run, err = ingest.Run(ctx, im.st, ingest.Options{ArchiveRoot: root})
 	case source.IMessage:
-		run, err = imessage.Run(ctx, im.st, imessage.Options{ArchiveRoot: root})
+		run, err = imessage.Run(ctx, im.st, imessage.Options{ArchiveRoot: root,
+			Exclusions: imessage.ExclusionPolicy{ShortCodes: im.cfg.IMessageExcludeShortCodes,
+				EmailReminders: im.cfg.IMessageExcludeEmailReminders, Rules: im.cfg.IMessageExclusions}})
 	case source.WhatsApp:
 		run, err = whatsapp.Run(ctx, im.st, whatsapp.Options{ArchiveRoot: root})
 	default:

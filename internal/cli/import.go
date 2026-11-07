@@ -59,7 +59,9 @@ func newImportCommand() *cobra.Command {
 				if err := requireIMessageArchive(cfg); err != nil {
 					return err
 				}
-				run, err := imessage.Run(cmd.Context(), st, imessage.Options{ArchiveRoot: cfg.IMessageArchiveRoot, Full: full})
+				run, err := imessage.Run(cmd.Context(), st, imessage.Options{ArchiveRoot: cfg.IMessageArchiveRoot, Full: full,
+					Exclusions: imessage.ExclusionPolicy{ShortCodes: cfg.IMessageExcludeShortCodes,
+						EmailReminders: cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions}})
 				if err != nil {
 					return fmt.Errorf("imessage import: %w", err)
 				}

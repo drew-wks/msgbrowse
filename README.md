@@ -141,6 +141,50 @@ clicking? **Settings → Providers** in the web UI runs export + import per sour
 with one click. See the
 [first import guide](https://joestump.github.io/msgbrowse/docs/getting-started/first-import/).
 
+### Exclude unwanted iMessage texts before import
+
+The following settings in your local, uncommitted `config.yaml` opt in to two
+ingest filters. A short code is **exactly five or six digits** in the export's
+sender or conversation field; ordinary phone numbers are unaffected. The email
+rule matches an incoming message when its sender or conversation is an email
+address and its body contains the literal phrase `appointment reminder`
+(case-insensitive). Neither rule uses a contact-list heuristic.
+
+```yaml
+imessage_exclude_short_codes: true
+imessage_exclude_email_reminders: true
+imessage_exclusions:
+  - name: named-contact-reminder
+    conversation: "Example Contact"
+    body_contains: "appointment reminder"
+```
+
+Each `imessage_exclusions` entry requires a unique `name` and an exact
+`conversation` matching a `<ChatName>.txt` filename. With `body_contains`, only
+matching messages are skipped; without it, incoming and outgoing messages in
+that entire conversation are skipped. Use a named-contact rule only after
+reviewing its match count. Rules apply to `imessage-import`, the combined
+`import` and `sync` commands, and Providers imports.
+
+Preview counts before import, without opening or writing the SQLite archive or
+copying media:
+
+```sh
+./bin/msgbrowse --config /absolute/path/to/config.yaml imessage-import --preview-exclusions
+```
+
+The preview reports counts by rule, not message bodies. Counts cover the current
+TXT export and may include messages already archived. Filtering happens before
+attachment copying and SQLite insertion, but the replaceable exporter staging
+files still contain the original messages until separately removed. A policy
+change rescans an unchanged TXT file. Adding a rule does **not** erase messages
+or media already archived; this is an append-only archive. The Apple Messages
+“Unknown Senders” flag is not available in this TXT import, so it is not an
+automatic exclusion. Add exact conversation rules for such threads after
+reviewing the export names. If the exporter resolves an address to a contact
+name, the automatic address rules may not recognize it; the preview counts
+make that limitation visible only for matched messages.
+
 ### Build and create a local iMessage archive
 
 Run this example from this repository on a Mac with Messages history. The export

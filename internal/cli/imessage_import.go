@@ -34,6 +34,39 @@ func newIMessageImportCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			preview, err := cmd.Flags().GetBool("preview-exclusions")
+			if err != nil {
+				return err
+			}
+			if preview {
+				policy := imessage.ExclusionPolicy{ShortCodes: cfg.IMessageExcludeShortCodes,
+					EmailReminders: cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions}
+				result, err := imessage.PreviewExclusions(cfg.IMessageArchiveRoot, policy)
+				if err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(),
+					"exclusion preview: %d conversations, %d messages, %d excluded, %d eligible, %d skipped lines\n",
+					result.Conversations, result.Messages, result.Excluded, result.Eligible, result.SkippedLines); err != nil {
+					return err
+				}
+				if policy.ShortCodes {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d excluded\n", imessage.ShortCodeRule, result.ByRule[imessage.ShortCodeRule]); err != nil {
+						return err
+					}
+				}
+				if policy.EmailReminders {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d excluded\n", imessage.EmailReminderRule, result.ByRule[imessage.EmailReminderRule]); err != nil {
+						return err
+					}
+				}
+				for _, rule := range policy.Rules {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d excluded\n", rule.Name, result.ByRule[rule.Name]); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
 
 			st, err := openStore(cfg)
 			if err != nil {
@@ -44,6 +77,8 @@ func newIMessageImportCommand() *cobra.Command {
 			run, err := imessage.Run(cmd.Context(), st, imessage.Options{
 				ArchiveRoot: cfg.IMessageArchiveRoot,
 				Full:        full,
+				Exclusions: imessage.ExclusionPolicy{ShortCodes: cfg.IMessageExcludeShortCodes,
+					EmailReminders: cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions},
 			})
 			if err != nil {
 				return err
@@ -73,5 +108,6 @@ func newIMessageImportCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("full", false, "ignore incremental state and re-scan every conversation")
+	cmd.Flags().Bool("preview-exclusions", false, "count exclusion matches without writing to the archive")
 	return cmd
 }

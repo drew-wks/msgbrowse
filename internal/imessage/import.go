@@ -3,6 +3,7 @@ package imessage
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -27,6 +28,8 @@ type Options struct {
 	// ArchiveRoot is the imessage-exporter output directory: a flat set of
 	// <ChatName>.txt files plus an attachments/ folder. Read-only.
 	ArchiveRoot string
+	// Exclusions are applied before attachment retention and SQLite insertion.
+	Exclusions ExclusionPolicy
 	// Full forces every conversation to be re-parsed, ignoring incremental state.
 	Full bool
 	// Now supplies the current time; defaults to time.Now.
@@ -38,6 +41,9 @@ type Options struct {
 // Run imports the iMessage archive into st and returns the recorded summary.
 // Changed conversations append new records. Existing messages and media remain.
 func Run(ctx context.Context, st *store.Store, opts Options) (store.IngestRun, error) {
+	if err := ValidateExclusions(opts.Exclusions); err != nil {
+		return store.IngestRun{}, err
+	}
 	now := time.Now
 	if opts.Now != nil {
 		now = opts.Now
@@ -154,19 +160,28 @@ func importConversation(
 	ctx context.Context, st *store.Store, opts Options, log *slog.Logger,
 	name, path string, info os.FileInfo, at time.Time,
 ) (changed bool, added, skipped int, err error) {
-	convID, err := st.UpsertConversation(ctx, source.IMessage, name)
-	if err != nil {
+	var convID int64
+	err = st.DB().QueryRowContext(ctx,
+		`SELECT id FROM conversations WHERE source = ? AND name = ?`, source.IMessage, name).Scan(&convID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, 0, 0, err
 	}
-	prev, err := st.GetIngestState(ctx, convID)
-	if err != nil {
-		return false, 0, 0, err
+	var prev *store.IngestState
+	if convID != 0 {
+		prev, err = st.GetIngestState(ctx, convID)
+		if err != nil {
+			return false, 0, 0, err
+		}
 	}
 	mtime, size := info.ModTime().Unix(), info.Size()
 
 	// Hash even when mtime and size match: exporters can replace a file with
 	// different same-length content within the filesystem's time resolution.
 	contentHash, err := hashFile(path)
+	if err != nil {
+		return false, 0, 0, err
+	}
+	contentHash, err = exclusionStateHash(contentHash, opts.Exclusions)
 	if err != nil {
 		return false, 0, 0, err
 	}
@@ -181,6 +196,21 @@ func importConversation(
 	msgs, skips, perr := parseFile(name, path, log)
 	if perr != nil {
 		return false, 0, 0, perr
+	}
+	msgs, excluded := FilterExcluded(msgs, opts.Exclusions)
+	for rule, count := range excluded {
+		log.Info("excluded imessage messages", "conversation", name, "rule", rule, "count", count)
+	}
+	if len(msgs) == 0 && convID == 0 {
+		// A wholly excluded new transcript should not leave an empty thread in
+		// the browser. It has no ingest state, so a later policy change can add it.
+		return true, 0, skips, nil
+	}
+	if convID == 0 {
+		convID, err = st.UpsertConversation(ctx, source.IMessage, name)
+		if err != nil {
+			return false, 0, 0, err
+		}
 	}
 	if err := retainMessageAttachments(ctx, st, opts.ArchiveRoot, msgs); err != nil {
 		return false, 0, 0, err

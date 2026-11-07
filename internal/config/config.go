@@ -31,6 +31,12 @@ type Config struct {
 	// directory of <ChatName>.txt files plus an attachments/ folder). Read-only,
 	// like ArchiveRoot. Empty when iMessage import is not used.
 	IMessageArchiveRoot string `mapstructure:"imessage_archive_root"`
+	// IMessageExclusions are explicit, local rules applied before iMessage rows
+	// and media are archived. An empty list retains every parsed message.
+	IMessageExclusions []IMessageExclusion `mapstructure:"imessage_exclusions"`
+	// These optional conservative classifiers apply only to iMessage ingestion.
+	IMessageExcludeShortCodes     bool `mapstructure:"imessage_exclude_short_codes"`
+	IMessageExcludeEmailReminders bool `mapstructure:"imessage_exclude_email_reminders"`
 
 	// WhatsAppArchiveRoot is the path to the WhatsApp-Chat-Exporter output
 	// directory (result.json plus the media folders the tool copied). Read-only,
@@ -104,6 +110,15 @@ type Config struct {
 	// Viper instance so the Settings → LLM save handler (#191) can write back
 	// to the exact file the process actually loaded.
 	SourceFile string `mapstructure:"-"`
+}
+
+// IMessageExclusion selects one export conversation, optionally narrowing the
+// match to messages whose body contains a case-insensitive literal phrase.
+// Conversation is the exact <ChatName> from the exporter TXT filename.
+type IMessageExclusion struct {
+	Name         string `mapstructure:"name"`
+	Conversation string `mapstructure:"conversation"`
+	BodyContains string `mapstructure:"body_contains"`
 }
 
 // DeviceSyncConfig configures device pairing and archive sync (ADR-0021 /
@@ -333,6 +348,9 @@ const DefaultDigestPrompt = "You are summarizing one day of a personal message a
 func SetDefaults(v *viper.Viper) {
 	v.SetDefault("archive_root", "")
 	v.SetDefault("imessage_archive_root", "")
+	v.SetDefault("imessage_exclusions", []IMessageExclusion{})
+	v.SetDefault("imessage_exclude_short_codes", false)
+	v.SetDefault("imessage_exclude_email_reminders", false)
 	v.SetDefault("whatsapp_archive_root", "")
 	v.SetDefault("data_dir", "./data")
 

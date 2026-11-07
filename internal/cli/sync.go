@@ -270,7 +270,9 @@ func syncDepsFromConfig(st *store.Store, cfg *config.Config, out io.Writer, w sy
 			if err := requireIMessageArchive(cfg); err != nil {
 				return "", err
 			}
-			run, err := imessage.Run(ctx, st, imessage.Options{ArchiveRoot: cfg.IMessageArchiveRoot})
+			run, err := imessage.Run(ctx, st, imessage.Options{ArchiveRoot: cfg.IMessageArchiveRoot,
+				Exclusions: imessage.ExclusionPolicy{ShortCodes: cfg.IMessageExcludeShortCodes,
+					EmailReminders: cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions}})
 			if err != nil {
 				return "", err
 			}
