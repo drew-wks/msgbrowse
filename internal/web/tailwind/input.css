@@ -1058,6 +1058,11 @@ body {
 .conv-meta-sep {
   opacity: 0.6;
 }
+.conv-address-line {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .meta-chip {
   display: inline-flex;
   align-items: center;

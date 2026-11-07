@@ -35,8 +35,10 @@ type Config struct {
 	// and media are archived. An empty list retains every parsed message.
 	IMessageExclusions []IMessageExclusion `mapstructure:"imessage_exclusions"`
 	// These optional conservative classifiers apply only to iMessage ingestion.
-	IMessageExcludeShortCodes     bool `mapstructure:"imessage_exclude_short_codes"`
-	IMessageExcludeEmailReminders bool `mapstructure:"imessage_exclude_email_reminders"`
+	IMessageExcludeShortCodes           bool `mapstructure:"imessage_exclude_short_codes"`
+	IMessageExcludeFilteredSMS          bool `mapstructure:"imessage_exclude_filtered_sms"`
+	IMessageExcludeEmailReminders       bool `mapstructure:"imessage_exclude_email_reminders"`
+	IMessageExcludeAppointmentReminders bool `mapstructure:"imessage_exclude_appointment_reminders"`
 
 	// WhatsAppArchiveRoot is the path to the WhatsApp-Chat-Exporter output
 	// directory (result.json plus the media folders the tool copied). Read-only,
@@ -350,7 +352,9 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("imessage_archive_root", "")
 	v.SetDefault("imessage_exclusions", []IMessageExclusion{})
 	v.SetDefault("imessage_exclude_short_codes", false)
+	v.SetDefault("imessage_exclude_filtered_sms", false)
 	v.SetDefault("imessage_exclude_email_reminders", false)
+	v.SetDefault("imessage_exclude_appointment_reminders", false)
 	v.SetDefault("whatsapp_archive_root", "")
 	v.SetDefault("data_dir", "./data")
 

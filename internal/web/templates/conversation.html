@@ -90,6 +90,7 @@
          hx-boost="true" hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">{{template "icon-link" .}}<span class="font-mono">{{num .Active.LinkCount}}</span></a>{{end}}
       {{- if gt .Active.FileCount 0}}<a class="meta-chip" href="{{galleryConvURL "files" .Active.ID}}" title="View attachments from this conversation"
          hx-boost="true" hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">{{template "icon-paperclip" .}}<span class="font-mono">{{num .Active.FileCount}}</span></a>{{end}}
+      {{- if .Active.AddressLine}}<span class="conv-address-line">Addresses: <span class="font-mono">{{.Active.AddressLine}}</span></span>{{end}}
     </div>
   </header>
     <section class="px-4 lg:px-6 py-4">

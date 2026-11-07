@@ -192,7 +192,7 @@ func (s *Server) handleConversationAt(w http.ResponseWriter, r *http.Request) {
 	list := messageListData{
 		ActiveID:    id,
 		Source:      active.Source,
-		ConvName:    active.Name,
+		ConvName:    active.RawName,
 		Sort:        sortAsc, // context reads chronologically regardless of the transcript default
 		Messages:    msgs,
 		HighlightID: mid,

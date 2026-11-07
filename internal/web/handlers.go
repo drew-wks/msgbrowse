@@ -376,7 +376,7 @@ func (s *Server) handleConversation(w http.ResponseWriter, r *http.Request) {
 		List: messageListData{
 			ActiveID:   id,
 			Source:     active.Source,
-			ConvName:   active.Name,
+			ConvName:   active.RawName,
 			Sort:       sort,
 			Messages:   page.Messages,
 			HasMore:    page.HasMore,
@@ -465,7 +465,7 @@ func (s *Server) renderPinToggle(w http.ResponseWriter, r *http.Request, id int6
 		List: messageListData{
 			ActiveID:   id,
 			Source:     active.Source,
-			ConvName:   active.Name,
+			ConvName:   active.RawName,
 			Sort:       sortDesc,
 			Messages:   page.Messages,
 			HasMore:    page.HasMore,

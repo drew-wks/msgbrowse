@@ -67,6 +67,35 @@ func TestConversationHeaderNoProfileButtonUnlinked(t *testing.T) {
 	}
 }
 
+func TestIMessageSidebarNameAndHeaderAddress(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+	id, err := st.UpsertConversation(ctx, source.IMessage, "+15551234567")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts, _ := time.Parse(signal.TimestampLayout, "2026-11-01 10:00:00")
+	msgs := []signal.Message{
+		{Conversation: "+15551234567", Timestamp: ts, TimestampRaw: ts.Format(signal.TimestampLayout), Sender: "Ana Smith", Body: "Hello"},
+		{Conversation: "+15551234567", Timestamp: ts.Add(time.Minute), TimestampRaw: ts.Add(time.Minute).Format(signal.TimestampLayout), Sender: "Me", Body: "Hi"},
+	}
+	if _, err := st.AppendIMessageMessages(ctx, id, msgs); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, srv, "/c/"+itoa(id)).Body.String()
+	for _, want := range []string{
+		`data-name="Ana Smith"`,
+		`<span class="conv-name truncate">Ana Smith</span>`,
+		`<span class="conv-preview-sender">Me:</span>`,
+		`<h1 class="conv-title">Ana Smith</h1>`,
+		`Addresses: <span class="font-mono">&#43;15551234567</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("conversation page missing %q", want)
+		}
+	}
+}
+
 func TestContactPageOpenMessagesMirror(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	conv := fixtureConversation(t, st, "Harper")

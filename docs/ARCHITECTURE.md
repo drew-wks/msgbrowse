@@ -1,12 +1,12 @@
 # Permanent offline iMessage archive: architecture
 
-This is the architecture reference for this fork's iMessage archival behavior. The existing [upstream architecture](../ARCHITECTURE.md) describes msgbrowse as a whole. The Stage 1 assessment was based on commit `043562ae667e1fbc01b9c5609a49db8b12625eaf`; Stage 2 adds code and synthetic tests. Stage 3 validated limited real iMessage and SMS exports. A seven-snapshot, GUID-aware reconstruction validated message overlap and retained available media in an isolated archive; that reconstruction is now the configured local archive. Complete attachment recovery remains unverified.
+This is the architecture reference for this fork's iMessage archival behavior. The existing [upstream architecture](../ARCHITECTURE.md) describes msgbrowse as a whole. The Stage 1 assessment was based on commit `043562ae667e1fbc01b9c5609a49db8b12625eaf`; Stage 2 adds code and synthetic tests. Stage 3 validated limited real iMessage and SMS exports. A seven-snapshot, GUID-aware reconstruction validated message overlap and retained available media in an isolated archive; that reconstruction and later Drew-labeled historical backups are now in the configured local archive. Complete attachment recovery remains unverified.
 
 ## Purpose and scope
 
 Apple Messages with Messages in iCloud remains the active messaging system. This fork aims to retain a searchable, local history after a user deletes selected older messages from Apple Messages to reduce iCloud storage. The archive must survive source deletion and remain usable offline. Repeated ingestion must add new content without removing earlier archived content.
 
-This project reuses msgbrowse's Go application, SQLite store, web UI, and exporter integration. It does not sync data back to Apple Messages, replace active messaging, implement archive deletion, require a subscription, or introduce a new database or service. The Stage 2 code retains imported rows and media in synthetic tests; a limited real-data retention and restore drill also passed. Full-history completeness, broader exporter compatibility, and recovery from other failure modes still need validation. Do not delete anything from iCloud on the strength of this limited sample.
+This project reuses msgbrowse's Go application, SQLite store, web UI, and exporter integration. It does not sync data back to Apple Messages, replace active messaging, automatically delete archived messages, require a subscription, or introduce a new database or service. The Stage 2 code retains imported rows and media in synthetic tests; a limited real-data retention and restore drill also passed. Full-history completeness, broader exporter compatibility, and recovery from other failure modes still need validation. Do not delete anything from iCloud on the strength of this limited sample.
 
 ## System architecture
 
@@ -60,18 +60,22 @@ that omission as absent input for the current pass, not as an instruction to
 delete the already archived row or attachment bytes.
 
 Optional iMessage exclusion rules run after TXT parsing and before attachment
-retention and `AppendIMessageMessages`. They may omit five or six digit sender
-addresses, incoming email-address messages containing `appointment reminder`,
-or explicitly named export conversations and phrases. `imessage-import
+retention and `AppendIMessageMessages`. They may omit five- or six-digit sender
+addresses (including exporter-added names in parentheses), `(smsfp)` and
+`(smsft)` filtered-SMS conversations, incoming messages with the exact phrase
+`appointment reminder`, or explicitly named export conversations and phrases. `imessage-import
 --preview-exclusions` parses the export and reports aggregate rule counts
 without opening the archive database or copying media. The policy is included
 in incremental ingest state, so changing rules rescans unchanged TXT files.
-Adding an exclusion cannot remove previously archived rows or bytes. Export
-staging still contains omitted messages until separately cleaned. Apple's
-“Unknown Senders” classification is not present in the parsed TXT record; it
-cannot currently be used as an automatic filter. A resolved contact name can
-also hide a short code or email address from the address-based rules. No
-full-history exclusion accuracy has yet been validated.
+Adding a policy rule alone cannot remove previously archived rows or bytes.
+Owner-directed cleanup records deleted GUIDs and hashes in
+`imessage_excluded_messages` (schema v28); the importer checks that ledger before
+copying attachments or inserting messages. Export staging still contains omitted
+messages until separately cleaned. Apple's “Unknown Senders” classification is
+not present in the parsed TXT record. The cleanup below used read-only Apple
+metadata for GUIDs currently present in that database; future unseen unknown
+senders are not automatically classified by TXT import. No full-history
+exclusion accuracy has yet been established.
 
 **Current:** `msgbrowse export` invokes `imessage-exporter -f txt -c clone -o <imessage_archive_root>`; this normal path does not open `chat.db` ([`internal/cli/export.go`](../internal/cli/export.go), `exportIMessage`). The importer scans top-level `<ChatName>.txt` files, preserves legacy attachment references before source replacement, copies available media to permanent storage, and inserts newly observed messages without deleting old rows ([`internal/imessage/import.go`](../internal/imessage/import.go), `Run` and `importConversation`; [`internal/imessage/media.go`](../internal/imessage/media.go); [`internal/store/imessage_archive.go`](../internal/store/imessage_archive.go)). For overlapping historical snapshots, [`scripts/imessage-reconstruct`](../scripts/imessage-reconstruct) produces TXT and HTML from the same source snapshot. `imessage-import --guid-html-root` pairs Apple's GUID in the HTML with each TXT message using timestamp, sender, and within-group order. It rejects incomplete pairings and uses the GUID to attach later media to an existing row even when an exporter renames the conversation. `imessage-source-assets` then reads the same source database and, for iPhone backups, `Manifest.db` in query-only mode. It records every attachment GUID linked to an archived message, copies each available file into permanent media, and keeps hidden opaque payloads out of the ordinary gallery. The Providers flow still exports into staging and swaps the managed export root, but retains referenced media first ([`internal/onboard/runner.go`](../internal/onboard/runner.go), `execute`; [`internal/onboardsvc/onboardsvc.go`](../internal/onboardsvc/onboardsvc.go), `PreserveBeforeReplacement`).
 
@@ -81,7 +85,7 @@ Other msgbrowse sources (Signal, WhatsApp) share the store's replacement method.
 
 ## Data model and storage
 
-The CLI creates `<data_dir>/msgbrowse.sqlite`; `data_dir` defaults to `./data`. `openStore` creates the directory, and `store.Open` enables WAL, foreign keys, and migrations ([`internal/cli/common.go`](../internal/cli/common.go), lines 16–30; [`internal/config/config.go`](../internal/config/config.go), line 337; [`internal/store/store.go`](../internal/store/store.go), lines 23–67). The database is ordinary SQLite using the pure-Go `modernc.org/sqlite` driver ([`go.mod`](../go.mod), line 21). Schema version is 27: v25 adds unique nullable `messages.source_guid`; v26 retains native attachment bytes and provenance; v27 records attachment GUIDs even when all examined sources lack a file ([`internal/store/schema.go`](../internal/store/schema.go)).
+The CLI creates `<data_dir>/msgbrowse.sqlite`; `data_dir` defaults to `./data`. `openStore` creates the directory, and `store.Open` enables WAL, foreign keys, and migrations ([`internal/cli/common.go`](../internal/cli/common.go), lines 16–30; [`internal/config/config.go`](../internal/config/config.go), line 337; [`internal/store/store.go`](../internal/store/store.go), lines 23–67). The database is ordinary SQLite using the pure-Go `modernc.org/sqlite` driver ([`go.mod`](../go.mod), line 21). Schema version is 28: v25 adds unique nullable `messages.source_guid`; v26 retains native attachment bytes and provenance; v27 records attachment GUIDs even when all examined sources lack a file; v28 records owner-directed exclusions ([`internal/store/schema.go`](../internal/store/schema.go)).
 
 | Entity | Current identity and relationship |
 | --- | --- |
@@ -91,6 +95,18 @@ The CLI creates `<data_dir>/msgbrowse.sqlite`; `data_dir` defaults to `./data`. 
 | Native attachment catalog | `imessage_attachment_observations` records each source attachment GUID linked to an archived message, including missing files. `imessage_source_assets` records each retained byte variant by source attachment GUID and permanent path. Visible files also appear in `attachments`; hidden opaque payloads remain in the source-assets table and permanent media tree without gallery cards. ([`internal/imessage/source_assets.go`](../internal/imessage/source_assets.go); [`internal/store/imessage_archive.go`](../internal/store/imessage_archive.go); [`internal/store/schema.go`](../internal/store/schema.go).) |
 | Link and reaction | Links cascade with messages. Reactions use message hash and `(message_hash, emoji, actor)` uniqueness; iMessage tapbacks are parsed as reaction data on a message, not standalone messages. ([`internal/store/store.go`](../internal/store/store.go), lines 332–400; [`internal/imessage/parser.go`](../internal/imessage/parser.go), lines 93–127 and 188–201.) |
 | Search and metadata | FTS5 `messages_fts` is maintained by message insert/delete/update triggers. `ingest_state` tracks a conversation's export file mtime, size, content hash, and last count; `ingest_runs` holds run summaries. Embeddings are optional and keyed by message hash. ([`internal/store/schema.go`](../internal/store/schema.go), lines 120–159 and 222–244.) |
+
+The browser's iMessage conversation title is display-only. For a numbered
+one-to-one thread, it uses a linked contact name or the most recent non-owner
+sender label when archived variants retain the same first and last name;
+unrelated names leave the address visible. For a participant-list
+group, it substitutes names only where a matching one-to-one handle establishes
+the person; unresolved addresses remain visible. The sidebar filter matches
+that displayed title, while the transcript header shows the original address
+list once in its metadata. The original `conversations.name` remains the media
+path and archive identity; sender labels and message records are not rewritten.
+The default command-line build cannot read macOS Contacts, so it cannot name
+threads for which the archive has no reliable person label.
 
 The paths have distinct owners and lifetimes:
 
@@ -250,7 +266,7 @@ To generate an export with the existing CLI, set an iMessage root and run `./bin
 | Risk | Evidence and required validation |
 | --- | --- |
 | Apple/macOS or exporter format change | Parser targets `imessage-exporter` 4.2.0 text layout ([`internal/imessage/parser.go`](../internal/imessage/parser.go), lines 1–28). Validate against real exports and each upgrade. |
-| Missing local downloads | `clone` and the native source scan can preserve only files present on disk. The catalog retains attachment GUIDs without bytes so later backups can fill gaps; 1,631 linked GUIDs remain unavailable across seven tested sources. Parser missing-attachment notices still do not carry bytes. |
+| Missing local downloads | `clone` and the native source scan can preserve only files present on disk. The catalog retains attachment GUIDs without bytes so later backups can fill gaps; 1,631 linked GUIDs remain unavailable after the Seagate import. Parser missing-attachment notices still do not carry bytes. |
 | Identity and edits | TXT alone lacks GUIDs and content hashes change with body or conversation name. Paired exporter 5.0.1 HTML supplies GUIDs. Same-second/sender groups are paired in exporter order, which matched precise source date order in the three tested snapshots; exact native date ties and other exporter versions remain a compatibility risk. The first imported body remains visible when later snapshots render a changed body for the same GUID; later text revisions are not yet stored separately. |
 | Attachment integrity | Legacy references may already outlive their original bytes. The importer verifies retained bytes when copying; validate actual attachment classes and sizes on real history. The 11 omitted hidden rows in the Stage 3 sample were URL preview payloads; the optional backfill now retains their bytes in this sample. Do not treat `hide_attachment` alone as proof that a file can be excluded in other conversations. |
 | URL preview matching | TXT exports lack source GUIDs and omit thumbnail files. The optional scan requires a unique timestamp, direction, and URL-host match. Timestamp ties, absent URL metadata, unsupported file types, or unavailable local files require manual review. No remote image fetching is performed. |
@@ -433,7 +449,70 @@ The previous configured database at `/Users/drew_wilkins/Documents/Messages/data
 
 A consistent post-preview snapshot, `snapshot-20261107-042346`, supplied the SQLite database and retained media for `/Users/drew_wilkins/Documents/Messages/archive`. Every referenced file in that new path passed SHA-256 checks: 6,667 distinct files and 9,719,379,922 bytes. SQLite integrity returned `ok`; the archive retained 56,287 unique GUID messages, 12,982 cataloged attachment GUIDs, and 11,351 GUIDs with bytes. The local config now points `data_dir` at this archive and `backups.dir` at `/Users/drew_wilkins/Documents/Messages/archive-backups`. The first configured archive backup, `snapshot-20261107-042645`, was restored into `/Users/drew_wilkins/Documents/Messages/archive-restore-check`: SQLite integrity, message and attachment counts, 13,855 generic search hits, and all 6,667 file hashes and byte counts matched the configured archive. `msgbrowse doctor` found no problems, and the configured browser served its home, media page, and a hash-checked image over loopback. The old `/Users/drew_wilkins/Documents/Messages/data` directory was not replaced or deleted.
 
-Future historical sources should use [`scripts/imessage-reconstruct`](../scripts/imessage-reconstruct) with the existing staging workspace and `/Users/drew_wilkins/Documents/Messages/archive` as `DATA_DIR`. Ordinary Providers refresh still emits TXT alone and does not provide the GUID pairing used for overlapping backups. The archive is operational locally; the 1,631 missing attachment identifiers, ambiguous same-second pairing, and unretained alternate message bodies remain limitations. Apple Messages and iCloud remain untouched.
+Future historical sources with `Manifest.db` should use [`scripts/imessage-reconstruct`](../scripts/imessage-reconstruct) with the existing staging workspace and `/Users/drew_wilkins/Documents/Messages/archive` as `DATA_DIR`. Older `Manifest.mbdb` backups require separate handling described below. Ordinary Providers refresh still emits TXT alone and does not provide the GUID pairing used for overlapping backups. The archive is operational locally; the 1,631 missing attachment identifiers, ambiguous same-second pairing, and unretained alternate message bodies remain limitations. Apple Messages and iCloud remain untouched.
+
+## Seagate historical import (2026-11-07 local time)
+
+The read-only `/Volumes/Black Seagate 1TB` Time Machine tree contained 22 distinct iPhone backup records. Eleven were explicitly labeled for Drew under the `drew_wilkins` Mac profile; seven were labeled for Gail, Eva, or Gabernat, and four initially had uncertain ownership. Nine Drew-labeled backups stored `sms.db` under its bare SHA-1 name; two older ones used the `.mddata` format, found in a later metadata review. A repeated April 2014 backup had the same 1,887 message GUIDs as its companion and was not imported twice. The active Apple Messages database and iCloud were not changed.
+
+These are pre-iOS-13 backups with flat hashed files and `Manifest.mbdb`. `imessage-exporter` 5.0.1 rejects that backup-root layout, consistent with the [maintainer's stated support boundary](https://github.com/ReagentX/imessage-exporter/discussions/590). It could read the December 2013 and April 2014 `sms.db` files directly with `--platform macOS --db-path`. A private, normalized copy of each database mapped attachment filenames through its own `Manifest.mbdb` to copied files; no source backup was edited. Paired TXT/HTML exports from those copies added 5,842 and 1,878 messages, respectively. All 315 and 62 source attachment GUIDs mapped to available bytes. The configured archive retains those 377 attachment IDs at 335 distinct content-addressed paths; every such path exists and its filename SHA-256 matches its bytes. Repeating both imports added zero messages.
+
+Six earlier Drew-labeled databases used legacy `msg_group`/`madrid` tables rather than the modern `chat` schema. A private bridge export selected text records with a clear address or handle and direction; it omitted rows with an explicit legacy room name. For iMessages, 272 previously unseen Apple `madrid_guid` values were paired with generated GUID-bearing HTML; the old direction bit was checked against 1,770 matching messages already in the archive. For SMS, the bridge used only flags 2/3 with an address and text, converted mixed Unix and Apple epoch dates to local time, rejected exact timestamp/body/direction matches already archived, and deduplicated overlaps among the six backups. The source SMS direction matched all 707 exact archive comparisons examined. The bridge staged 2,158 SMS records; 2,134 were new after msgbrowse's own hash check. It omitted 35 short-code records before import. The isolated bridge archive passed SQLite integrity and repeated imports added zero; production repeats also added zero. These were one-off private staging conversions, not a general legacy-backup command in the repository.
+
+The older `madrid_attachment` table contained 106 records in the March 2013 backup. Opaque message attachment blobs gave a unique message-GUID association for 105, all with available files; one association was ambiguous and omitted. A dry run found all 105 linked to archived messages, and the actual source-assets pass added zero because these attachment GUIDs and bytes were already retained. Legacy MMS `msg_pieces` media remain unimported. A later read-only check found 147 of 149 March 2013 media parts map uniquely to available `Manifest.mbdb` files by `message_id` and `part_id`; one unmatched part has inline bytes and one file mapping is ambiguous. Linking parts to archived parent messages and retaining them has not been implemented or validated. Blank or undated legacy rows, unclear direction or address rows, legacy group records without a reliable one-to-one handle, and any attachment-only rows not represented by TXT remain outside this import. The bridge also cannot reconstruct Apple Messages' historical Unknown Senders classification. Do not treat this as a complete reconstruction of every old backup row.
+
+The later owner review resolved two of the four uncertain labels without opening their message contents. A June 2009 backup named “Apple’s iPhone” has the same device identifier and serial as later “Drew’s iPhone” backups, but its `.mddata` SMS database contains zero messages. “Carol’s iPad” is excluded as a different owner. Both backups named “Siemens” are iOS 4 iPads with zero messages; their ownership remains unproven and they were not imported. The two already Drew-labeled `.mddata` backups contain 455 (June 2009) and 1,481 (April 2010) messages. Their SQLite databases passed integrity checks. After overlap and short-code filtering, 8 and 35 text records were staged, respectively; isolated repeats added zero duplicates, and production imports added **zero** new messages because msgbrowse recognized all staged records as already archived. The April 2010 backup also has 88 `msg_pieces` rows, including 36 media parts, which remain outside the archive pending a legacy MMS importer.
+
+The configured archive now has **66,413 iMessage records**, up from 56,287, with no duplicate `source_guid` groups and SQLite integrity `ok`. Of **13,359** cataloged attachment GUIDs, **11,728** have bytes and **1,631** remain unavailable, including **843 visible** assets. `msgbrowse doctor` reported zero problems and five warnings for optional, unconfigured sources and semantic embeddings. The pre-import backup is `snapshot-20261107-051619`; the post-import backup is `snapshot-20261107-052840` under `/Users/drew_wilkins/Documents/Messages/archive-backups`. The latter backup's SQLite database passed integrity and contains 66,413 messages, but the snapshot has not yet been restored as a separate Seagate-specific drill. Private exports, normalized copies, and logs are under `/Users/drew_wilkins/Documents/Messages/reconstruction/2026-11-07-seagate`.
+
+## Owner-directed exclusion cleanup (2026-11-07)
+
+The user clarified that five- and six-digit short-code senders, appointment
+reminders, Apple “Unknown Senders,” and exporter-labeled `(smsft)` and `(smsfp)`
+conversations should not be in the configured archive. The prior short-code
+rule missed exporter-added parenthetical names; neither filtered-SMS suffix was
+recognized. The configured import now excludes both suffix families, including
+their outgoing replies, and incoming text containing the exact phrase
+`appointment reminder`. It does not infer “Unknown Senders” from the contact
+list.
+
+A read-only join of the current Mac's `chat.db` to archived Apple GUIDs found
+373 archived messages attached to chats with `is_filtered=1`. Independent
+open-source readers identify that exact value as Apple's Unknown Senders bucket
+([Blip](https://github.com/nixfred/blip),
+[Herald](https://github.com/ack-ventures/herald/blob/main/SPEC.md)); Apple does
+not publish a stable contract for this private database field. The cleanup
+targeted only those matched GUIDs, not other nonzero filter categories or
+historical messages absent from the current Mac database.
+
+After a full pre-cleanup snapshot, a single transaction recorded each selected
+GUID and hash in the v28 exclusion ledger and removed **615 distinct messages**
+from the configured archive: 102 short-code matches, 206 `(smsft)`/`(smsfp)`
+matches, two exact-phrase appointment reminders, and 373 `is_filtered=1`
+matches, with overlap among categories. All selected rows had Apple GUIDs.
+Foreign keys and SQLite integrity passed. Of 69 permanent media paths attached
+only to those messages, 69 files were removed after the database transaction;
+none was shared with retained messages. Eight derived JPEG previews for those
+paths were also removed from the local cache. The resulting archive contains
+**65,798 iMessage messages**. Search's FTS row count matches that total;
+`msgbrowse doctor` reports zero problems and the same five optional warnings.
+The pre-cleanup snapshot is `snapshot-20261107-125525` under
+`/Users/drew_wilkins/Documents/Messages/archive-backups`. Another 152 Apple
+Unknown Senders GUIDs were present in the current Mac database but had not yet
+been imported; these were added to the ledger without copying their content.
+The final post-cleanup snapshot is `snapshot-20261107-130435`; its SQLite copy
+passes integrity and contains 65,798 messages plus all 767 exclusion-ledger
+entries. Its full media restore has not been drilled separately.
+
+The ledger prevents already identified messages from being recreated when a
+GUID-aware historical import is repeated. For TXT-only imports, it also checks
+the stored hash, but TXT cannot distinguish every same-second identical message;
+two removed rows used a GUID-specific collision hash. Use paired GUID-aware
+exports for historical reimports. Future messages in Apple’s Unknown Senders bucket
+cannot be identified from exporter TXT alone. Historical backups may not retain
+that classification; their unclassified records need separate review. Existing
+pre-cleanup backups still contain the removed messages and media, so restoring
+one would require repeating this owner-directed cleanup.
 
 ## Implementation status
 
@@ -451,14 +530,14 @@ transport for part of the first sample.
 | Append-only messages | TXT-only imports use content hashes; paired imports reuse Apple GUIDs and never delete omitted messages | Preserve existing content | Tested (seven-source isolated reconstruction) |
 | Conversation identity | First observed export filename labels a message; changed names can still split new messages across conversation rows | Reconcile source thread identity across snapshots | Partial |
 | Apple message GUID | Paired exporter 5.0.1 HTML supplies GUIDs; nullable unique `source_guid` persists them | Preserve identity across overlapping snapshots | Tested (seven-source isolated reconstruction; equal-date ties remain) |
-| Independent attachment retention | TXT and native source scans copy bytes to `<data_dir>/media/imessage` with SHA-256 names; later snapshots can fill gaps by attachment GUID | Preserve every available byte variant and report unavailable GUIDs | Tested (11,351 available attachment GUIDs retained; 1,631 unavailable across seven sources) |
+| Independent attachment retention | TXT and native source scans copy bytes to `<data_dir>/media/imessage` with SHA-256 names; later snapshots can fill gaps by attachment GUID | Preserve every available byte variant and report unavailable GUIDs | Tested (11,728 available attachment GUIDs retained; 1,631 unavailable after Seagate) |
 | HEIC browser previews | `imessage-import` runs the existing local converter; `msgbrowse media` rebuilds JPEG cache after restore | Show HEIC images in gallery and transcript while retaining originals | Tested (limited real sample; four local HEIC files) |
 | URL preview retention | Optional read-only source scan copies uniquely matched URL balloon images to permanent media; transcript hides raw URL text and displays the local card image | Preserve link thumbnails independently of Apple-owned caches | Tested (limited real sample; full-history coverage unverified) |
 | Providers refresh | Preserves legacy references before replacing managed export; append import retains existing rows | Preserve existing media and content | Tested (synthetic) |
 | Providers Disable | No iMessage control; request and store deletion guard reject it | Prevent iMessage archive loss | Tested (synthetic) |
 | DB backup | New snapshots include DB, config, and retained media checksums | Back up DB plus permanent media | Tested (seven-source isolated archive, separate restore) |
 | Offline browsing | Local UI/search with existing DB and media | Browse without exporter or source data | Tested (restored seven-source archive over loopback without exporter; source deletion only in limited sample) |
-| Real-history completeness | Seven snapshot union reconciles 56,885 GUIDs into 56,287 retained and 598 configured exclusions; available retained bytes hash-check | Reconcile attachment GUID availability and any source omissions before iCloud deletion | Partial |
+| Real-history completeness | The seven-source GUID union and selected Drew-labeled 2010–2014 backups now yield 66,413 records; available new media hash-checks | Reconcile missing bytes, legacy MMS/group rows, and source omissions before iCloud deletion | Partial |
 
 ## Architecture decision log
 

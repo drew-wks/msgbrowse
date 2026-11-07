@@ -160,6 +160,8 @@ func TestListConversationsGoldenEquality(t *testing.T) {
 		t.Fatalf("fixture too small to be meaningful: %d conversations", len(want))
 	}
 	for i := range want {
+		// The legacy listing predates the display-only raw-address field.
+		got[i].RawName = ""
 		if !reflect.DeepEqual(got[i], want[i]) {
 			t.Errorf("row %d differs:\n new:    %+v\n legacy: %+v", i, got[i], want[i])
 		}

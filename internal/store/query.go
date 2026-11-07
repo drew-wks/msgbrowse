@@ -13,6 +13,8 @@ import (
 type ConversationSummary struct {
 	ID           int64
 	Name         string
+	RawName      string // source conversation name; display names may resolve to people
+	AddressLine  string // original phone/email participant list when title uses names
 	Source       string // "signal" | "imessage" — selects how media paths resolve
 	Pinned       bool   // sidebar PINNED section membership (REQ-0006-010)
 	MessageCount int
@@ -102,9 +104,10 @@ type Page struct {
 // #80 adversarial review's substr-starvation finding). Deliberately NOT a
 // window function: the ROW_NUMBER() variant measured
 // 2.1s on the same archive (see SPEC-0008 design.md's measured rejects).
-// ListConversations returns the sidebar's summaries. Name prefers the linked
-// contact's display_name over the raw conversation handle (#444): the sidebar
-// must show what the transcript shows. Unlinked conversations keep c.name.
+// ListConversations returns the sidebar's summaries. Name prefers a linked
+// contact's display_name, then an unambiguous sender label for numbered
+// iMessage threads. Group handle lists substitute only proven individual names.
+// RawName preserves the source identity for media paths and header metadata.
 func (s *Store) ListConversations(ctx context.Context) ([]ConversationSummary, error) {
 	const q = `
 SELECT c.id, COALESCE(NULLIF(ct.display_name, ''), c.name) AS name, c.source, c.pinned,
@@ -151,7 +154,13 @@ SELECT c.id, COALESCE(NULLIF(ct.display_name, ''), c.name) AS name, c.source, c.
 		cs.LastPreview = preview(body, 80)
 		out = append(out, cs)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.decorateIMessageConversationNames(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // ConversationRef is the minimal id+name pair the filter dropdowns (search,
@@ -337,6 +346,11 @@ func (s *Store) GetConversationByID(ctx context.Context, id int64) (*Conversatio
 	if err != nil {
 		return nil, err
 	}
+	resolved := []ConversationSummary{cs}
+	if err := s.decorateIMessageConversationNames(ctx, resolved); err != nil {
+		return nil, err
+	}
+	cs = resolved[0]
 	if cs.MessageCount > 0 {
 		if err := s.fillLastMessage(ctx, &cs); err != nil {
 			return nil, err

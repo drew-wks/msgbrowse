@@ -44,7 +44,9 @@ func newIMessageImportCommand() *cobra.Command {
 			}
 			if preview {
 				policy := imessage.ExclusionPolicy{ShortCodes: cfg.IMessageExcludeShortCodes,
-					EmailReminders: cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions}
+					FilteredSMS:          cfg.IMessageExcludeFilteredSMS,
+					AppointmentReminders: cfg.IMessageExcludeAppointmentReminders,
+					EmailReminders:       cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions}
 				result, err := imessage.PreviewExclusions(cfg.IMessageArchiveRoot, policy)
 				if err != nil {
 					return err
@@ -59,8 +61,18 @@ func newIMessageImportCommand() *cobra.Command {
 						return err
 					}
 				}
+				if policy.FilteredSMS {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d excluded\n", imessage.FilteredSMSRule, result.ByRule[imessage.FilteredSMSRule]); err != nil {
+						return err
+					}
+				}
 				if policy.EmailReminders {
 					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d excluded\n", imessage.EmailReminderRule, result.ByRule[imessage.EmailReminderRule]); err != nil {
+						return err
+					}
+				}
+				if policy.AppointmentReminders {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d excluded\n", imessage.AppointmentReminderRule, result.ByRule[imessage.AppointmentReminderRule]); err != nil {
 						return err
 					}
 				}
@@ -83,7 +95,9 @@ func newIMessageImportCommand() *cobra.Command {
 				GUIDHTMLRoot: guidHTMLRoot,
 				Full:         full,
 				Exclusions: imessage.ExclusionPolicy{ShortCodes: cfg.IMessageExcludeShortCodes,
-					EmailReminders: cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions},
+					FilteredSMS:          cfg.IMessageExcludeFilteredSMS,
+					AppointmentReminders: cfg.IMessageExcludeAppointmentReminders,
+					EmailReminders:       cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions},
 			})
 			if err != nil {
 				return err

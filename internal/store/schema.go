@@ -6,7 +6,7 @@ import "context"
 // `user_version` pragma. On Open, the migrations runner brings any older
 // database forward to this version. Bump it and append a migration whenever the
 // schema changes.
-const schemaVersion = 27
+const schemaVersion = 28
 
 // SchemaVersion returns the schema revision this binary expects (and migrates a
 // database forward to on Open). Read-only callers — notably `msgbrowse doctor` —
@@ -66,6 +66,7 @@ var migrations = []string{
 	25: schemaV25,
 	26: schemaV26,
 	27: schemaV27,
+	28: schemaV28,
 }
 
 // schemaV1 is the initial Signal-only schema. It is preserved verbatim so a
@@ -1177,4 +1178,20 @@ CREATE TABLE IF NOT EXISTS imessage_attachment_observations (
 );
 CREATE INDEX IF NOT EXISTS idx_imessage_attachment_observations_guid
     ON imessage_attachment_observations(source_attachment_guid);
+`
+
+// schemaV28 records explicit owner-directed iMessage exclusions so a later
+// overlapping source snapshot cannot silently recreate removed messages.
+const schemaV28 = `
+CREATE TABLE IF NOT EXISTS imessage_excluded_messages (
+    id          INTEGER PRIMARY KEY,
+    source_guid TEXT,
+    message_hash TEXT NOT NULL,
+    reason      TEXT NOT NULL,
+    excluded_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_excluded_guid
+    ON imessage_excluded_messages(source_guid) WHERE source_guid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_imessage_excluded_hash
+    ON imessage_excluded_messages(message_hash);
 `

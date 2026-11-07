@@ -39,6 +39,7 @@ type Options struct {
 	Now func() time.Time
 	// Logger receives progress; defaults to slog.Default().
 	Logger *slog.Logger
+	ledger store.IMessageExclusionLedger
 }
 
 // Run imports the iMessage archive into st and returns the recorded summary.
@@ -47,6 +48,11 @@ func Run(ctx context.Context, st *store.Store, opts Options) (store.IngestRun, e
 	if err := ValidateExclusions(opts.Exclusions); err != nil {
 		return store.IngestRun{}, err
 	}
+	ledger, err := st.LoadIMessageExclusionLedger(ctx)
+	if err != nil {
+		return store.IngestRun{}, err
+	}
+	opts.ledger = ledger
 	now := time.Now
 	if opts.Now != nil {
 		now = opts.Now
@@ -217,6 +223,10 @@ func importConversation(
 	msgs, excluded := FilterExcluded(msgs, opts.Exclusions)
 	for rule, count := range excluded {
 		log.Info("excluded imessage messages", "conversation", name, "rule", rule, "count", count)
+	}
+	msgs, ledgerExcluded := filterLedgerExcluded(msgs, opts.ledger)
+	if ledgerExcluded > 0 {
+		log.Info("excluded previously removed imessage messages", "conversation", name, "count", ledgerExcluded)
 	}
 	if len(msgs) == 0 && convID == 0 {
 		// A wholly excluded new transcript should not leave an empty thread in

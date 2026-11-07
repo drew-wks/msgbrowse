@@ -5,7 +5,9 @@
 > This fork builds on [upstream msgbrowse](https://github.com/stump-wtf/msgbrowse)
 > and aims to retain imported history when source messages are later deleted.
 > **Append-only iMessage retention is implemented.** Synthetic tests and a
-> seven-snapshot real-data GUID union, repeat import, and separate restore check passed. Imported
+> seven-snapshot real-data GUID union, repeat import, and separate restore
+> check passed. Additional Drew-labeled 2010–2014 iPhone backups have been
+> merged into the configured archive. Imported
 > iMessages remain in SQLite when later exports omit them, and referenced
 > attachments are copied into archive-controlled storage. Complete attachment
 > recovery and compatibility across exporter versions remain unverified.
@@ -143,15 +145,19 @@ with one click. See the
 
 ### Exclude unwanted iMessage texts before import
 
-The following settings in your local, uncommitted `config.yaml` opt in to two
-ingest filters. A short code is **exactly five or six digits** in the export's
-sender or conversation field; ordinary phone numbers are unaffected. The email
-rule matches an incoming message when its sender or conversation is an email
-address and its body contains the literal phrase `appointment reminder`
-(case-insensitive). Neither rule uses a contact-list heuristic.
+The following settings opt in to ingest filters. A short code is five or six
+digits in the export's sender or conversation field, optionally followed by an
+exporter-added name in parentheses. Ordinary phone numbers are unaffected.
+`(smsfp)` and `(smsft)` conversation suffixes are separately excluded, including
+outgoing replies in those conversations. The appointment rule excludes incoming
+messages containing the literal phrase `appointment reminder`
+(case-insensitive), regardless of sender address. Neither rule uses a
+contact-list heuristic.
 
 ```yaml
 imessage_exclude_short_codes: true
+imessage_exclude_filtered_sms: true
+imessage_exclude_appointment_reminders: true
 imessage_exclude_email_reminders: true
 imessage_exclusions:
   - name: named-contact-reminder
@@ -178,12 +184,13 @@ TXT export and may include messages already archived. Filtering happens before
 attachment copying and SQLite insertion, but the replaceable exporter staging
 files still contain the original messages until separately removed. A policy
 change rescans an unchanged TXT file. Adding a rule does **not** erase messages
-or media already archived; this is an append-only archive. The Apple Messages
-“Unknown Senders” flag is not available in this TXT import, so it is not an
-automatic exclusion. Add exact conversation rules for such threads after
-reviewing the export names. If the exporter resolves an address to a contact
-name, the automatic address rules may not recognize it; the preview counts
-make that limitation visible only for matched messages.
+or media already archived; deliberate cleanup must first make a backup and
+record removed message identities in the SQLite exclusion ledger. This prevents
+overlapping GUID-aware imports from recreating those messages. The Apple Messages
+“Unknown Senders” flag is not available in TXT, so future unseen messages in
+that category require an explicit source-metadata review. The local archive's
+known GUIDs were reviewed against Apple's read-only `chat.db` on 2026-11-07;
+see [validation results](docs/ARCHITECTURE.md#owner-directed-exclusion-cleanup-2026-11-07).
 
 ### Build and create a local iMessage archive
 
@@ -246,16 +253,17 @@ attachment bytes that were missing from an earlier snapshot. Source order is
 not important; keep each backup's staging directory separate. The original
 backups and Apple Messages database are read only.
 
-On this Mac, the seven-source reconstruction has been promoted to the configured
-archive at `/Users/drew_wilkins/Documents/Messages/archive`. The browser
-launcher reads `/Users/drew_wilkins/Documents/Messages/config.yaml`, and new
+On this Mac, the seven-source reconstruction and subsequent Drew-labeled
+Seagate sources are in the configured archive at
+`/Users/drew_wilkins/Documents/Messages/archive`. The browser launcher reads
+`/Users/drew_wilkins/Documents/Messages/config.yaml`, and new
 archive backups go to `/Users/drew_wilkins/Documents/Messages/archive-backups`.
 For the next mounted source, use a new label, keep the existing reconstruction
 workspace for staging, and set `DATA_DIR` to the configured archive path. The
 former `/Users/drew_wilkins/Documents/Messages/data` remains a rollback copy.
-The archive is in use, but 1,631 cataloged attachment identifiers still lack
-bytes in every source examined; do not delete Apple/iCloud copies on the basis
-of the current coverage.
+As of the Seagate import, the archive has 66,413 messages. Another 1,631
+cataloged attachment identifiers still lack bytes in every source examined;
+do not delete Apple/iCloud copies on the basis of the current coverage.
 
 ```sh
 WORKSPACE="$HOME/Documents/Messages/reconstruction/2026-11-06-backups"
@@ -283,6 +291,10 @@ unbounded exporter compatibility range. The current native iPhone recovery path
 requires an **unencrypted** MobileSync backup; the script rejects an encrypted
 one before exporting. A copied Mac database can use an attachment root copied
 from another Mac.
+
+The script requires the newer `Manifest.db` backup layout. Older flat backups
+with `Manifest.mbdb` or `.mddata` files need a separately validated conversion; see the
+[Seagate historical import](docs/ARCHITECTURE.md#seagate-historical-import-2026-11-07-local-time).
 
 If a network-mounted iPhone backup cannot be opened by the exporter, make a
 local copy of its manifest, `sms.db`, contacts database, and the Messages
