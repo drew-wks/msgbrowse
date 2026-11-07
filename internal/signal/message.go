@@ -71,6 +71,9 @@ type Reaction struct {
 // the identity for a participant; sender display names are not globally unique,
 // so callers must not assume uniqueness across conversations.
 type Message struct {
+	// SourceGUID is the source database's stable message identifier when an
+	// importer can prove it. iMessage HTML exports expose Apple's GUID.
+	SourceGUID string `json:"-"`
 	// Conversation is the conversation folder name (the identity key).
 	Conversation string
 	// Timestamp is the parsed timestamp (UTC) used for ordering and range

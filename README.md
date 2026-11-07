@@ -5,11 +5,11 @@
 > This fork builds on [upstream msgbrowse](https://github.com/stump-wtf/msgbrowse)
 > and aims to retain imported history when source messages are later deleted.
 > **Append-only iMessage retention is implemented.** Synthetic tests and a
-> limited real-data export, repeat import, and restore check passed. Imported
+> seven-snapshot real-data GUID union, repeat import, and separate restore check passed. Imported
 > iMessages remain in SQLite when later exports omit them, and referenced
-> attachments are copied into archive-controlled storage. Full-history
-> completeness and compatibility across exporter versions remain unverified.
-> Do not delete messages from iCloud based on the limited sample alone.
+> attachments are copied into archive-controlled storage. Complete attachment
+> recovery and compatibility across exporter versions remain unverified.
+> Do not delete messages from iCloud based on this validation alone.
 > Read the [fork architecture and implementation status](docs/ARCHITECTURE.md)
 > before using it for archival decisions.
 
@@ -101,8 +101,8 @@ instructions](https://support.apple.com/guide/mac-help/change-privacy-security-s
 
 The parser targets the **4.2.0 TXT layout**, and the desktop build pins exporter
 4.2.0. The CLI uses whichever version is installed. Exporter **5.0.1** passed
-a limited real-data import, independent repeat export, and restore check;
-full-history and cross-version compatibility remain unverified. Record the
+a seven-snapshot real-data GUID union, repeat import, attachment recovery, and
+restore check; other versions remain unverified. Record the
 output of `imessage-exporter --version` and validate a disposable export before
 relying on an upgrade. There is no proven minimum supported version or
 compatibility range.
@@ -234,6 +234,72 @@ still retain the complete URL. Other apps' link metadata may not be covered.
 Create a [backup](docs/ARCHITECTURE.md#data-model-and-storage) with
 `./bin/msgbrowse --data-dir "$DATA_DIR" backups create`; verify a restore on a
 separate copy before considering any deletion from Apple Messages or iCloud.
+
+### Reconstruct history from overlapping backups
+
+For multiple iPhone backups or copied Mac databases, use the GUID-aware
+workflow. `imessage-exporter` 5.0.1 produces **both** TXT and HTML exports from
+the *same database snapshot*: TXT supplies text and cloned attachments; HTML
+supplies each Apple message GUID. msgbrowse unions messages by GUID, so a
+message found in several backups is one archived message. Each pass can add
+attachment bytes that were missing from an earlier snapshot. Source order is
+not important; keep each backup's staging directory separate. The original
+backups and Apple Messages database are read only.
+
+On this Mac, the seven-source reconstruction has been promoted to the configured
+archive at `/Users/drew_wilkins/Documents/Messages/archive`. The browser
+launcher reads `/Users/drew_wilkins/Documents/Messages/config.yaml`, and new
+archive backups go to `/Users/drew_wilkins/Documents/Messages/archive-backups`.
+For the next mounted source, use a new label, keep the existing reconstruction
+workspace for staging, and set `DATA_DIR` to the configured archive path. The
+former `/Users/drew_wilkins/Documents/Messages/data` remains a rollback copy.
+The archive is in use, but 1,631 cataloged attachment identifiers still lack
+bytes in every source examined; do not delete Apple/iCloud copies on the basis
+of the current coverage.
+
+```sh
+WORKSPACE="$HOME/Documents/Messages/reconstruction/2026-11-06-backups"
+DATA_DIR="$HOME/Documents/Messages/archive"
+CONFIG="$HOME/Documents/Messages/config.yaml"
+./scripts/imessage-reconstruct iOS \
+  "/absolute/path/to/one/MobileSync/Backup/DEVICE_ID" \
+  "iphone-2024-07-21" "$WORKSPACE" "$DATA_DIR" "$CONFIG"
+# Repeat with a different label and path for every distinct backup snapshot.
+```
+
+The script checks for exporter 5.0.1, builds msgbrowse, creates separate TXT
+and HTML staging, imports with `--guid-html-root`, then reads the same source
+database and backup manifest in read-only mode to retain native attachment
+files omitted by TXT. It keeps private logs under `$WORKSPACE/reports`. A label
+is tied to the backup manifest checksum; an
+incomplete staging directory stops for review rather than being reused. For a
+Mac snapshot, pass `macOS`, the path to a consistent **copy** of `chat.db`, and
+the original Messages attachment root as the seventh argument. Do not point
+the script at a live changing database: sequential TXT and HTML runs could see
+different messages. The ordinary `msgbrowse export` and Providers flows still
+produce TXT alone; use this paired workflow for overlapping historical
+snapshots. `--guid-html-root` is validated against exporter 5.0.1, not an
+unbounded exporter compatibility range. The current native iPhone recovery path
+requires an **unencrypted** MobileSync backup; the script rejects an encrypted
+one before exporting. A copied Mac database can use an attachment root copied
+from another Mac.
+
+If a network-mounted iPhone backup cannot be opened by the exporter, make a
+local copy of its manifest, `sms.db`, contacts database, and the Messages
+attachment files named by `Manifest.db`, then point the script at that copy.
+Keep the copied manifest and file set from the same backup snapshot. Missing
+files remain recorded as gaps; they do not prevent later backups from filling
+them. The four-source isolated validation used this approach for one network
+backup.
+
+The archive keeps the first imported text for a GUID and appends later media,
+links, and reactions. Visible native attachments become ordinary media;
+hidden plugin payloads are retained as raw assets without appearing in the
+gallery. The native attachment catalog reports distinct identifiers still
+missing bytes across *all backups ingested so far*. A changed body under the
+same GUID is not yet exposed as a separate revision in the browser. Files
+missing from every source remain unrecoverable by this workflow; compare the
+catalog and archive media before deleting anything from Apple Messages or iCloud.
 
 You can also let msgbrowse invoke the same exporter. With only the iMessage root
 configured, run:

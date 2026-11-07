@@ -59,17 +59,14 @@ var spaceRun = regexp.MustCompile(`\s+`)
 // isAttachmentPath adds the path-shape and URL guards.
 var attachmentExtRe = regexp.MustCompile(`(?i)\.(jpe?g|png|gif|heic|heif|webp|bmp|tiff?|mov|mp4|m4v|3gp|avi|mkv|caf|m4a|amr|aac|wav|mp3|pdf|vcf|zip|docx?|xlsx?|pptx?|csv|txt|html?)$`)
 
-// isAttachmentPath reports whether a (trimmed) content line is an attachment
-// path. imessage-exporter writes attachments as bare filesystem paths (relative
-// "attachments/…" in copy mode, or absolute), so we require a spaceless,
-// slash-bearing, non-URL token ending in a known extension. This deliberately
-// excludes bare URLs (which contain "://" and stay in the body so they become
-// links) and one-word body lines like "readme.txt" (no slash).
+// isAttachmentPath reports whether a content line is a copied attachment path.
+// Clone-mode exports put these under attachments/. Other slash-bearing lines,
+// including scheme-less web addresses, remain message text.
 func isAttachmentPath(trimmed string) bool {
 	if strings.ContainsAny(trimmed, " \t") || strings.Contains(trimmed, "://") {
 		return false
 	}
-	if !strings.Contains(trimmed, "/") {
+	if !strings.HasPrefix(trimmed, "attachments/") {
 		return false
 	}
 	return attachmentExtRe.MatchString(trimmed)

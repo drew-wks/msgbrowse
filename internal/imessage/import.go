@@ -28,6 +28,9 @@ type Options struct {
 	// ArchiveRoot is the imessage-exporter output directory: a flat set of
 	// <ChatName>.txt files plus an attachments/ folder. Read-only.
 	ArchiveRoot string
+	// GUIDHTMLRoot is a matching imessage-exporter 5.0.1 HTML export from
+	// the same database snapshot. It supplies stable Apple message GUIDs.
+	GUIDHTMLRoot string
 	// Exclusions are applied before attachment retention and SQLite insertion.
 	Exclusions ExclusionPolicy
 	// Full forces every conversation to be re-parsed, ignoring incremental state.
@@ -185,7 +188,7 @@ func importConversation(
 	if err != nil {
 		return false, 0, 0, err
 	}
-	if !opts.Full && prev != nil && prev.ContentHash == contentHash {
+	if !opts.Full && opts.GUIDHTMLRoot == "" && prev != nil && prev.ContentHash == contentHash {
 		prev.MTimeUnix, prev.SizeBytes, prev.LastIngestedAt = mtime, size, at
 		if serr := st.SetIngestState(ctx, *prev); serr != nil {
 			return false, 0, 0, serr
@@ -197,6 +200,20 @@ func importConversation(
 	if perr != nil {
 		return false, 0, 0, perr
 	}
+	if opts.GUIDHTMLRoot != "" && len(msgs) > 0 {
+		htmlPath, entries, herr := findGUIDHTML(opts.GUIDHTMLRoot, name, msgs)
+		if herr != nil {
+			return false, 0, 0, fmt.Errorf("pair Apple GUIDs: %w", herr)
+		}
+		if err := assignGUIDs(msgs, entries); err != nil {
+			return false, 0, 0, err
+		}
+		htmlHash, err := hashFile(htmlPath)
+		if err != nil {
+			return false, 0, 0, err
+		}
+		contentHash = "guid:" + contentHash + ":" + htmlHash
+	}
 	msgs, excluded := FilterExcluded(msgs, opts.Exclusions)
 	for rule, count := range excluded {
 		log.Info("excluded imessage messages", "conversation", name, "rule", rule, "count", count)
@@ -206,7 +223,15 @@ func importConversation(
 		// the browser. It has no ingest state, so a later policy change can add it.
 		return true, 0, skips, nil
 	}
-	if convID == 0 {
+	reuseOnly := false
+	if convID == 0 && opts.GUIDHTMLRoot != "" && len(msgs) > 0 {
+		allPresent, err := allIMessageGUIDsPresent(ctx, st, msgs)
+		if err != nil {
+			return false, 0, 0, err
+		}
+		reuseOnly = allPresent
+	}
+	if convID == 0 && !reuseOnly {
 		convID, err = st.UpsertConversation(ctx, source.IMessage, name)
 		if err != nil {
 			return false, 0, 0, err
@@ -218,6 +243,9 @@ func importConversation(
 	added, err = st.AppendIMessageMessages(ctx, convID, msgs)
 	if err != nil {
 		return false, 0, 0, err
+	}
+	if reuseOnly {
+		return true, added, skips, nil
 	}
 	if err = st.SetIngestState(ctx, store.IngestState{
 		ConversationID: convID,
@@ -231,6 +259,26 @@ func importConversation(
 		return false, 0, 0, err
 	}
 	return true, added, skips, nil
+}
+
+// allIMessageGUIDsPresent avoids creating an empty conversation when an old
+// snapshot labels only GUIDs already archived under other export filenames.
+func allIMessageGUIDsPresent(ctx context.Context, st *store.Store, msgs []signal.Message) (bool, error) {
+	for _, m := range msgs {
+		if m.SourceGUID == "" {
+			return false, nil
+		}
+		var id int64
+		err := st.DB().QueryRowContext(ctx, `SELECT id FROM messages WHERE source = ? AND source_guid = ?`,
+			source.IMessage, m.SourceGUID).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // parseFile streams a .txt file and returns its parsed messages plus a count of

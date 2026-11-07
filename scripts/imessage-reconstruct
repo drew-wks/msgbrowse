@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Merge one immutable Messages snapshot into an append-only msgbrowse archive.
+set -euo pipefail
+umask 077
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/imessage-reconstruct PLATFORM SOURCE LABEL WORKSPACE DATA_DIR CONFIG [ATTACHMENT_ROOT]
+
+PLATFORM is iOS or macOS. SOURCE is an iOS backup directory or a consistent
+copy of chat.db. LABEL uniquely names this snapshot, including its date.
+ATTACHMENT_ROOT is required for macOS when attachments live outside SOURCE.
+Each snapshot is exported to separate TXT and HTML staging directories.
+EOF
+}
+
+if [[ $# -lt 6 || $# -gt 7 ]]; then
+  usage >&2
+  exit 2
+fi
+platform=$1
+source_path=$2
+label=$3
+workspace=$4
+data_dir=$5
+config=$6
+attachment_root=${7:-}
+
+if [[ $platform != iOS && $platform != macOS ]]; then
+  echo 'PLATFORM must be iOS or macOS' >&2
+  exit 2
+fi
+if [[ ! $label =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo 'LABEL must contain only letters, digits, dots, underscores, and hyphens' >&2
+  exit 2
+fi
+for path in "$source_path" "$workspace" "$data_dir" "$config"; do
+  if [[ $path != /* ]]; then
+    echo 'Use absolute paths for SOURCE, WORKSPACE, DATA_DIR, and CONFIG' >&2
+    exit 2
+  fi
+done
+if [[ ! -f $config ]]; then
+  echo 'CONFIG is not a readable file' >&2
+  exit 2
+fi
+if [[ $platform == iOS ]]; then
+  fingerprint_file=$source_path/Manifest.db
+  if [[ ! -f $source_path/Manifest.plist ]] ||
+    [[ $(plutil -extract IsEncrypted raw -o - "$source_path/Manifest.plist" 2>/dev/null) != false ]]; then
+    echo 'Native attachment recovery currently requires an unencrypted iOS backup' >&2
+    exit 2
+  fi
+else
+  fingerprint_file=$source_path
+  if [[ -z $attachment_root || $attachment_root != /* || ! -d $attachment_root ]]; then
+    echo 'macOS snapshots require an absolute, existing ATTACHMENT_ROOT' >&2
+    exit 2
+  fi
+fi
+if [[ ! -f $fingerprint_file ]]; then
+  echo 'SOURCE does not contain the expected database or Manifest.db' >&2
+  exit 2
+fi
+exporter_version=$(imessage-exporter --version 2>/dev/null || true)
+if [[ ! $exporter_version =~ (^|[[:space:]])5[.]0[.]1($|[[:space:]]) ]]; then
+  echo 'GUID reconstruction has been validated with imessage-exporter 5.0.1 only' >&2
+  exit 2
+fi
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+mkdir -p "$workspace/exports" "$workspace/reports"
+fingerprint=$(shasum -a 256 "$fingerprint_file" | cut -d ' ' -f 1)
+txt_dir=$workspace/exports/$label-txt
+html_dir=$workspace/exports/$label-html
+
+export_one() {
+  local format=$1
+  local method=$2
+  local output_dir=$3
+  local log_file=$4
+  local marker=$output_dir/.source-sha256
+  if [[ -f $marker ]]; then
+    if [[ $(cat "$marker") != "$fingerprint" ]]; then
+      echo "Staging label belongs to a different snapshot: $output_dir" >&2
+      exit 2
+    fi
+    return
+  fi
+  if [[ -e $output_dir ]]; then
+    echo "Incomplete staging directory needs review: $output_dir" >&2
+    exit 2
+  fi
+  local args=(--platform "$platform" --db-path "$source_path" --format "$format"
+    --copy-method "$method" --export-path "$output_dir" --no-progress)
+  if [[ -n $attachment_root ]]; then
+    args+=(--attachment-root "$attachment_root")
+  fi
+  if ! imessage-exporter "${args[@]}" > "$log_file" 2>&1; then
+    echo "Exporter failed; inspect the private log: $log_file" >&2
+    exit 1
+  fi
+  printf '%s\n' "$fingerprint" > "$marker"
+}
+
+export_one txt clone "$txt_dir" "$workspace/reports/$label-txt-export.log"
+export_one html disabled "$html_dir" "$workspace/reports/$label-html-export.log"
+
+make -C "$repo_dir" build > "$workspace/reports/$label-build.log" 2>&1
+import_log=$workspace/reports/$label-import.log
+if ! "$repo_dir/bin/msgbrowse" imessage-import --config "$config" --data-dir "$data_dir" \
+  --imessage-archive-root "$txt_dir" --guid-html-root "$html_dir" --full \
+  --log-level error > "$import_log" 2>&1; then
+  echo "Import failed; inspect the private log: $import_log" >&2
+  exit 1
+fi
+awk '/^imessage-import:|^media:/' "$import_log"
+
+asset_args=(imessage-source-assets --config "$config" --data-dir "$data_dir"
+  --platform "$platform" --source "$source_path")
+if [[ -n $attachment_root ]]; then
+  asset_args+=(--attachment-root "$attachment_root")
+fi
+asset_log=$workspace/reports/$label-source-assets.log
+if ! "$repo_dir/bin/msgbrowse" "${asset_args[@]}" > "$asset_log" 2>&1; then
+  echo "Native attachment recovery failed; inspect the private log: $asset_log" >&2
+  exit 1
+fi
+awk '/^imessage-source-assets:/' "$asset_log"
+
+media_log=$workspace/reports/$label-media.log
+if ! "$repo_dir/bin/msgbrowse" media --config "$config" --data-dir "$data_dir" \
+  --imessage-archive-root "$txt_dir" --log-level error > "$media_log" 2>&1; then
+  echo "Image preview conversion failed; inspect the private log: $media_log" >&2
+  exit 1
+fi
+awk '/^media:/' "$media_log"

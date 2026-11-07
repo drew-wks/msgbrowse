@@ -44,7 +44,7 @@ func retainMessageAttachments(ctx context.Context, st *store.Store, archiveRoot 
 	mediaRoot := archivepath.IMessageMediaRoot(st.DataDir())
 	for i := range msgs {
 		m := &msgs[i]
-		existing, err := st.IMessageAttachmentPaths(ctx, m.HashWithSource(source.IMessage))
+		existing, err := st.IMessageAttachmentPaths(ctx, m.HashWithSource(source.IMessage), m.SourceGUID)
 		if err != nil {
 			return err
 		}

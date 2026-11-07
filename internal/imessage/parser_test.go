@@ -322,3 +322,25 @@ attachments/AB/CD/clip.mp4
 		t.Errorf("attachment path = %q", msgs[0].Attachments[0].RelPath)
 	}
 }
+
+// TestParseSchemeLessWebPath keeps a bare web address in the message body.
+func TestParseSchemeLessWebPath(t *testing.T) {
+	const in = `May 20, 2020  9:00:00 AM
+MJ
+example.invalid/articles/lookup.html
+attachments/AB/CD/document.html
+`
+	msgs, err := ParseAll("MJ", strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("got %d messages, want 1", len(msgs))
+	}
+	if msgs[0].Body != "example.invalid/articles/lookup.html" {
+		t.Errorf("body = %q", msgs[0].Body)
+	}
+	if len(msgs[0].Attachments) != 1 || msgs[0].Attachments[0].RelPath != "attachments/AB/CD/document.html" {
+		t.Errorf("attachments = %+v", msgs[0].Attachments)
+	}
+}

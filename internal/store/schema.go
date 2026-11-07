@@ -6,7 +6,7 @@ import "context"
 // `user_version` pragma. On Open, the migrations runner brings any older
 // database forward to this version. Bump it and append a migration whenever the
 // schema changes.
-const schemaVersion = 24
+const schemaVersion = 27
 
 // SchemaVersion returns the schema revision this binary expects (and migrates a
 // database forward to on Open). Read-only callers — notably `msgbrowse doctor` —
@@ -63,6 +63,9 @@ var migrations = []string{
 	22: schemaV22,
 	23: schemaV23,
 	24: schemaV24,
+	25: schemaV25,
+	26: schemaV26,
+	27: schemaV27,
 }
 
 // schemaV1 is the initial Signal-only schema. It is preserved verbatim so a
@@ -1133,4 +1136,45 @@ CREATE TABLE IF NOT EXISTS spam_runs (
 // observation kept for repair, not a second key.
 const schemaV24 = `
 ALTER TABLE conversations ADD COLUMN handle TEXT NOT NULL DEFAULT '';
+`
+
+// schemaV25 records Apple's stable GUID when it is present in a paired HTML
+// export. Legacy TXT-only rows remain without a GUID until matched on import.
+const schemaV25 = `
+ALTER TABLE messages ADD COLUMN source_guid TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_imessage_guid
+    ON messages(source_guid) WHERE source = 'imessage' AND source_guid IS NOT NULL;
+`
+
+// schemaV26 records the native attachment GUID and every retained byte variant.
+// Hidden plugin payloads remain available for future extraction without
+// appearing as ordinary media cards.
+const schemaV26 = `
+CREATE TABLE IF NOT EXISTS imessage_source_assets (
+    id                     INTEGER PRIMARY KEY,
+    message_id             INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    source_attachment_guid TEXT NOT NULL,
+    rel_path               TEXT NOT NULL,
+    hidden                 INTEGER NOT NULL,
+    kind                   TEXT NOT NULL,
+    original_name          TEXT NOT NULL,
+    UNIQUE(message_id, source_attachment_guid, rel_path)
+);
+CREATE INDEX IF NOT EXISTS idx_imessage_source_assets_guid
+    ON imessage_source_assets(source_attachment_guid);
+`
+
+// schemaV27 remembers native attachment identifiers even when every examined
+// source lacks the bytes. Later snapshots can close these gaps by GUID.
+const schemaV27 = `
+CREATE TABLE IF NOT EXISTS imessage_attachment_observations (
+    id                     INTEGER PRIMARY KEY,
+    message_id             INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    source_attachment_guid TEXT NOT NULL,
+    hidden                 INTEGER NOT NULL,
+    mime_type              TEXT NOT NULL,
+    UNIQUE(message_id, source_attachment_guid, hidden, mime_type)
+);
+CREATE INDEX IF NOT EXISTS idx_imessage_attachment_observations_guid
+    ON imessage_attachment_observations(source_attachment_guid);
 `
