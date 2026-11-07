@@ -63,8 +63,14 @@ const IMessagePermanentPrefix = "permanent/"
 //   - imessage: <roots.IMessage>/<rel>  (flat export; rel like "attachments/…")
 //   - whatsapp: <roots.WhatsApp>/<rel>  (flat export; rel like "Message/Media/…")
 //   - nexus:    <roots.NexusPermanent>/<rel after permanent/>
+//   - legacy_mms, legacy_mms_review: <roots.IMessagePermanent>/<rel after permanent/>
 func Resolve(src string, roots Roots, convName, rel string) (string, bool) {
 	switch src {
+	case source.LegacyMMS, source.LegacyMMSReview:
+		if !strings.HasPrefix(rel, IMessagePermanentPrefix) {
+			return "", false
+		}
+		return Contain(roots.IMessagePermanent, strings.TrimPrefix(rel, IMessagePermanentPrefix))
 	case source.IMessage:
 		if strings.HasPrefix(rel, IMessagePermanentPrefix) {
 			return Contain(roots.IMessagePermanent, strings.TrimPrefix(rel, IMessagePermanentPrefix))
@@ -72,7 +78,7 @@ func Resolve(src string, roots Roots, convName, rel string) (string, bool) {
 		return Contain(roots.IMessage, rel)
 	case source.WhatsApp:
 		return Contain(roots.WhatsApp, rel)
-	case source.Nexus:
+	case source.Nexus, source.NexusRecovery:
 		if !strings.HasPrefix(rel, IMessagePermanentPrefix) {
 			return "", false
 		}

@@ -40,10 +40,13 @@ flowchart LR
     Media["media/imessage<br/>retained attachment bytes"]
     Backup["Backups<br/>DB and retained media"]
     Native[Read-only native attachment catalog and recovery]
+    Legacy[Checked legacy iPhone MMS import]
     UI[Local msgbrowse web UI]
     ChatDB --> Exporter --> Export --> Ingest --> DB --> UI
     BackupSource --> Exporter
     BackupSource --> Native
+    BackupSource --> Legacy --> DB
+    Legacy -->|copy and hash MMS parts| Media
     ChatDB --> Native
     Native --> DB
     Native -->|copy and hash available bytes| Media
@@ -1018,7 +1021,7 @@ SQLite integrity, foreign keys, old-row digests, and media hashes passed.
 A repeated plan added zero, and a stale plan was rejected before a checkpoint
 was made. Black WD is not needed for this local Nexus step. The older Seagate
 `msg_pieces` audit now has hash-verified local source-database and uncataloged
-media copies; legacy MMS remains unmerged.
+media copies; legacy MMS was still unmerged at this audit point.
 
 ### Configured Nexus merge (2026-11-07)
 
@@ -1034,6 +1037,116 @@ SQLite integrity is `ok`, and foreign-key violations are zero. A fresh plan
 found **zero** additional Nexus messages. The checkpoint covers SQLite only;
 the full media backup and independent restore remain future work. The active
 Apple Messages database and iCloud were not changed.
+
+### Configured legacy iPhone MMS merge (2026-11-07)
+
+Six copied, SHA-256-verified Drew-labeled `sms.db` backups from 2010–2013
+supplied overlapping `msg_pieces` parents. The full payload catalog has 77
+hashes absent from permanent storage. For the 69 parent keys carrying those
+hashes, the importer resolved one-to-one recipients from `group_member`,
+verified source direction flags 2/3, checked current exclusions and unique
+contact identifiers, and held four keys. The held set includes two with
+nonstandard direction flags, one with a subject and near archive match, and
+one without a unique contact identifier. Historical Apple Unknown Senders
+classification is unavailable in these backups.
+
+The [`legacy_mms_import.py`](../scripts/legacy_mms_import.py) tool uses a
+source-specific identity based on timestamp, direction, normalized handle,
+text, and full part hashes. It stores messages under import-only
+`legacy_mms`, separate from live iMessage ingestion. New files use immutable
+SHA-256 paths under `media/imessage`, so the existing media resolver and
+backup manager include them. Distinct indexed and inline payload variants
+are retained; a secondary inline image is represented as a file attachment
+to avoid duplicate gallery images. The importer does not write to Apple's
+database or iCloud and never deletes archived rows when a source snapshot
+omits them.
+
+An isolated archive import added **65 messages**, **74 attachment
+references**, and **73 files**. Repeating it added zero. Preexisting message
+and attachment rows were unchanged, SQLite integrity and foreign-key checks
+passed, all 65 messages entered FTS, and all files matched SHA-256. A checked
+merge into the configured archive reproduced those counts, copying
+**14,026,822 bytes** of new media after a SQLite-only checkpoint at
+`/Users/drew_wilkins/Documents/Messages/archive-backups/legacy-mms-premerge-20261107-170759.sqlite`.
+The configured archive now contains **73,713 messages**. A fresh merge plan
+proposes zero further additions from this selected set. The rebuilt local
+browser returned HTTP 200 for home, a legacy conversation, the media gallery,
+and a sampled attachment; served bytes matched that file's hash.
+
+The four held parents were unmerged at this point; the later gap-recovery pass
+below addresses them. Other `msg_pieces` parents with bytes
+already cataloged were outside this 69-key missing-byte pass and still need
+message-level review. The checkpoint protects SQLite only; a full archive
+backup and independent restore are still due before relying on this archive
+for source deletion. The current snapshot manager copies `media/imessage`,
+including these legacy files, but does not yet copy the separate Nexus media
+tree; that gap must be closed before a whole-archive restore can be claimed.
+
+### Nexus recovery, overlap review, and Apple pair deduplication (2026-11-07)
+
+The eleven locally verified Nexus XML snapshots contain 8,680 normalized SMS
+and 503 normalized MMS identities. Nexus records have no Apple GUID. A comparison
+on normalized handle, displayed local second, direction, and exact body found
+**2,523 possible Apple overlaps**. This is strong metadata evidence, not proof
+of a shared source identity. Of these, 1,333 match one Apple row; 1,190 match
+two Apple rows with distinct GUIDs in the same chat. Drew identified a
+plausible cause: old Nexus-to-Mac synchronization may have inserted the same
+SMS into Apple history more than once. The source history does not prove that
+cause, so the metadata key and all source identities remain in a private review
+report.
+
+The initial recovery pass imported **882 SMS and 15 MMS** under the import-only
+`nexus_recovery` source. These 897 messages have source-specific hashes and
+review-labeled conversations; no Apple GUID or uncertain contact assignment was
+invented. Three distinct MMS files totaling **1,875,435 bytes** are retained
+under immutable SHA-256 paths in `media/nexus`, referenced by four attachments.
+The browser serves those archive-owned bytes without source staging. A later
+pass temporarily added the 2,523 possible Apple overlaps as separate Nexus
+messages. Once the likely duplication was recognized, a checked rollback
+removed exactly those 2,523 rows and the 81 review conversations created only
+for them. The pre-merge checkpoint, retained Nexus XML, and private candidate
+mapping make that correction auditable. The final `nexus_recovery` set remains
+**897 messages in 63 review conversations**. Repeating its import adds zero.
+
+The current Nexus accounting is **5,489** initially admitted SMS/MMS, **897**
+other recovery records, **2,523** possible Apple overlaps held with a verified
+local source and candidate mapping, and **274** owner-excluded records. The four
+Nexus identities matching excluded Apple GUIDs are within those 274. Owner
+exclusions for short codes, blocked senders, appointment reminders, and
+whole-thread STOP/QUIT are applied independently of other hold reasons. Nexus
+XML lacks Apple's historical Unknown Senders flag, so only identities matched
+to the available exclusion ledger can be screened on that basis. A private
+mapping of the 2,523 Nexus identities to candidate Apple row IDs is
+`/Users/drew_wilkins/Documents/Messages/reconstruction/2026-11-07-black-wd-various/reports/nexus-apple-metadata-candidates.json`.
+
+The 1,190 Apple pairs were separately audited before deduplication. Each pair
+had the same conversation, displayed second, direction, text, and other message
+metadata. Of the pairs, 1,180 had no attachments, links, or reactions; ten had
+attachments with the same kinds and retained byte paths. The differing
+attachment filename labels remain in source-asset observations. The checked
+[`scripts/dedupe_apple_pairs.py`](../scripts/dedupe_apple_pairs.py) operation
+kept the lower-ID row from each pair, recorded every removed GUID and hash in
+`imessage_excluded_messages`, transferred 11 source assets and 11 attachment
+observations to kept rows, and deleted only the 1,190 redundant message rows
+and their 11 redundant attachment references. No media file was deleted. The
+GUID ledger prevents those rows from reappearing on paired export import.
+The isolated and configured runs both passed SQLite integrity, foreign-key,
+FTS, retained media hash, and message-count checks. The configured archive had
+**73,420 messages** at that point. Its pre-deduplication SQLite-only checkpoint and
+private validation report are in the reconstruction reports directory. This
+owner-directed deduplication does not establish an automated rule for every
+future cross-platform match or Apple GUID pair; new candidates require review.
+
+A separate metadata-only checked update linked **47** initially admitted
+one-to-one Nexus conversations, covering **3,864** already archived messages,
+to existing contacts. Each link had a unique identifier match, stable source
+label, and matching iMessage sender-name evidence. It added 47 Nexus contact
+identifiers without changing message rows, attachment rows, contact names, or
+the exclusion ledger. The `nexus_recovery` conversations remain unassigned.
+
+The SQLite-only checkpoints do not protect media, and the current snapshot
+manager does not include `media/nexus`. A whole-archive media backup and restore
+drill remain necessary before relying on this archive for source deletion.
 
 ### Retained `.ichat` first-pass audit (2026-11-07)
 
@@ -1098,6 +1211,67 @@ increase during the check. Local Time Machine snapshots or shared blocks may
 retain physical storage; no snapshot was deleted. After cleanup, the
 configured archive passed SQLite integrity, foreign-key, and `doctor` checks.
 
+### Older iPhone SMS and MMS gap recovery (2026-11-07)
+
+Six SHA-256-verified, Drew-labeled copied `sms.db` backups supplied 13,686
+standard-direction SMS observations. Deduplication by source date, normalized
+address, direction flag, and text produced **5,153** distinct keys. A read-only
+comparison against the configured archive accounted for 4,750 exact rows,
+246 blank texts, 28 five- or six-digit short codes, 19 blocked addresses,
+56 close text variants, seven unverified address formats, and **47**
+materially different phone-addressed texts. Nine apparent group mismatches
+were punctuation variants of an international number and matched archived
+messages after normalization. Apple's
+historical Unknown Senders filter state was not present in these copied rows;
+no contact-name guess substituted for it.
+
+[`legacy_sms_gap_import.py`](../scripts/legacy_sms_gap_import.py) imports the
+47 under an import-only `legacy_sms_review` source with source-specific hashes,
+review conversation names, and no invented Apple GUID or contact assignment.
+It retains nearby Apple cards separately because a different body at the same
+second does not prove which historical representation is complete. It holds
+the 56 close variants in verified source copies for a later text
+representation audit. A private candidate map at `reconstruction/2026-11-07-seagate/reports/legacy-sms-close-variant-candidates.json` records source hashes, nearby archive row IDs, similarity, and lengths without message bodies or addresses. An isolated import added 47 texts, and a repeat added
+zero. [`legacy_sms_gap_checked_merge.py`](../scripts/legacy_sms_gap_checked_merge.py)
+made a SQLite-only checkpoint at
+`/Users/drew_wilkins/Documents/Messages/archive-backups/legacy-sms-review-premerge-20261107-2335.sqlite`
+and added 47 to the configured archive. SQLite integrity and foreign keys
+passed, FTS indexed all 47, and a fresh plan before the MMS gap merge proposed
+zero further texts. The copied source databases were not modified.
+
+The complete legacy MMS catalog contains **182** date/flag/handle parent
+keys. Among **113** whose media bytes were previously cataloged, **112** have
+an exact-second archive row with a matching media hash; one group or
+nonstandard-direction parent still lacks an exact destination. The earlier
+missing-byte pass left four parents. Three have no text and no exact archive
+destination; they were retained under import-only `legacy_mms_review` with
+their original source-specific identities and without asserting an uncertain
+contact or direction. The fourth parent has a subject, text, and an existing
+JPEG hash that match two equivalent Apple rows at the same second. Its
+distinct inline PNG was attached to both existing rows as a file, avoiding a
+third visible message. The old JPEG and new PNG remain separate byte variants.
+
+[`legacy_mms_gap.py`](../scripts/legacy_mms_gap.py) staged three review rows,
+five attachment references, and four new content-addressed files totaling
+**620,956 bytes** in an isolated archive. A repeat added zero. A disposable
+checked merge exercised the full plan before the configured merge. The
+configured [`legacy_mms_gap_checked_merge.py`](../scripts/legacy_mms_gap_checked_merge.py)
+pass used a SQLite-only checkpoint at
+`/Users/drew_wilkins/Documents/Messages/archive-backups/legacy-mms-gap-premerge-20261107-2343.sqlite`
+and reproduced those counts. The archive now holds **73,470 messages**. A
+fresh MMS plan proposes zero further additions; SQLite integrity and foreign
+keys pass, all three review rows are in FTS, all four new files match their
+SHA-256 names, and the rebuilt local browser serves a review conversation
+and sampled file over loopback with HTTP 200 and matching bytes. The new
+`legacy_mms_review` resolver uses `media/imessage`, never source staging.
+The two uncertain-direction rows remain labeled for review. A full
+database-plus-media backup and independent restore are still due; the
+current backup manager's Nexus-media coverage gap remains open.
+Disposable isolated and validation databases were removed after verification,
+removing 201,192,248 logical bytes; the source copies, private plans, permanent
+media, and two SQLite-only premerge checkpoints remain. Saved plans record
+what was checked but require a fresh isolated copy to run again.
+
 ## Implementation status
 
 “Tested (synthetic)” means regression tests use fabricated exports and media.
@@ -1121,7 +1295,7 @@ transport for part of the first sample.
 | Providers Disable | No iMessage control; request and store deletion guard reject it | Prevent iMessage archive loss | Tested (synthetic) |
 | DB backup | New snapshots include DB, config, and retained media checksums | Back up DB plus permanent media | Tested (seven-source isolated archive, separate restore) |
 | Offline browsing | Local UI/search with existing DB and media | Browse without exporter or source data | Tested (restored seven-source archive over loopback without exporter; source deletion only in limited sample) |
-| Real-history completeness | The current archive has 73,648 messages after the checked Nexus merge; its 275 new media files passed SHA-256 checks, while the last full permanent-iMessage-file check covered the earlier Blue Seagate state | Reconcile missing bytes, legacy MMS/group rows, encrypted backups, and source omissions before iCloud deletion | Partial |
+| Real-history completeness | The current archive has 73,470 messages after checked Nexus, Nexus recovery, legacy MMS, legacy SMS/MMS review recovery, and Apple-pair deduplication; their 275, 3, 73, and four new media files passed SHA-256 checks, while the last full permanent-iMessage-file check covered the earlier Blue Seagate state | Reconcile missing bytes, close text variants, uncertain legacy group rows, encrypted backups, and source omissions before iCloud deletion | Partial |
 
 ## Architecture decision log
 

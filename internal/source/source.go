@@ -25,6 +25,22 @@ const (
 	// Nexus identifies historical SMS/MMS copied from Drew's Android Nexus
 	// backups. It is an import-only reconstruction source, not a live provider.
 	Nexus = "nexus"
+
+	// LegacyMMS identifies MMS reconstructed from Drew's older iPhone sms.db
+	// backups. It is import-only and does not represent a live Apple provider.
+	LegacyMMS = "legacy_mms"
+
+	// LegacyMMSReview holds recovered MMS with unresolved contact or direction.
+	// It is import-only; its attachments use the permanent iMessage media root.
+	LegacyMMSReview = "legacy_mms_review"
+
+	// LegacySMSReview holds older SMS texts whose source identity is certain but
+	// whose overlap with nearby Apple messages remains for human review.
+	LegacySMSReview = "legacy_sms_review"
+
+	// NexusRecovery identifies historical Nexus observations whose conversation
+	// identity or cross-source duplicate status still needs owner review.
+	NexusRecovery = "nexus_recovery"
 )
 
 // All is the canonical list of live provider sources. Import-only historical
@@ -54,6 +70,14 @@ func Label(s string) string {
 		return "WhatsApp"
 	case Nexus:
 		return "Nexus SMS/MMS"
+	case LegacyMMS:
+		return "Legacy iPhone MMS"
+	case LegacyMMSReview:
+		return "Legacy iPhone MMS (review)"
+	case LegacySMSReview:
+		return "Legacy iPhone SMS (review)"
+	case NexusRecovery:
+		return "Nexus recovery (review)"
 	default:
 		return s
 	}

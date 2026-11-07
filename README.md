@@ -316,10 +316,14 @@ archive backups go to `/Users/drew_wilkins/Documents/Messages/archive-backups`.
 For the next mounted source, use a new label, keep the existing reconstruction
 workspace for staging, and set `DATA_DIR` to the configured archive path. The
 former `/Users/drew_wilkins/Documents/Messages/data` remains a rollback copy.
-The Seagate import reached 66,413 messages; after owner-directed exclusions,
-the configured archive has 65,667 after the four-digit short-code cleanup. Another 1,631
-cataloged attachment identifiers still lack bytes in every source examined;
-do not delete Apple/iCloud copies on the basis of the current coverage.
+The configured archive currently has 73,470 messages after the overlapping
+Apple, Nexus, and older iPhone source passes. Import-only
+`legacy_sms_review` and `legacy_mms_review` conversations keep recovered old
+material visible without assigning uncertain Apple GUIDs, contacts, or
+directions. Of 14,702 cataloged iMessage attachment identifiers, 1,071 still
+lack bytes in the sources examined. A current full media backup and independent
+restore are still due; do not delete Apple/iCloud copies on the basis of this
+coverage.
 
 ```sh
 WORKSPACE="$HOME/Documents/Messages/reconstruction/2026-11-06-backups"

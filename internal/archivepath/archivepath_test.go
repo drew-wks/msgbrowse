@@ -10,10 +10,11 @@ import (
 
 func TestResolve(t *testing.T) {
 	roots := Roots{
-		Signal:         "/archive",
-		IMessage:       "/imsg",
-		WhatsApp:       "/wa",
-		NexusPermanent: "/nexus",
+		Signal:            "/archive",
+		IMessage:          "/imsg",
+		WhatsApp:          "/wa",
+		NexusPermanent:    "/nexus",
+		IMessagePermanent: "/permanent-imessage",
 	}
 	cases := []struct {
 		name           string
@@ -28,7 +29,13 @@ func TestResolve(t *testing.T) {
 		// the whatsapp-chat-exporter output root (SPEC-0009 REQ-0009-006).
 		{name: "whatsapp flat", src: source.WhatsApp, conv: "Ada Fixture", rel: "Message/Media/1555@s.whatsapp.net/photo.jpg", want: "/wa/Message/Media/1555@s.whatsapp.net/photo.jpg", ok: true},
 		{name: "nexus permanent", src: source.Nexus, rel: "permanent/a.jpg", want: "/nexus/a.jpg", ok: true},
+		{name: "nexus recovery permanent", src: source.NexusRecovery, rel: "permanent/a.jpg", want: "/nexus/a.jpg", ok: true},
+		{name: "nexus recovery staging path rejected", src: source.NexusRecovery, rel: "a.jpg", ok: false},
 		{name: "nexus export path rejected", src: source.Nexus, rel: "a.jpg", ok: false},
+		{name: "legacy MMS permanent", src: source.LegacyMMS, rel: "permanent/ab/a.jpg", want: "/permanent-imessage/ab/a.jpg", ok: true},
+		{name: "legacy MMS staging path rejected", src: source.LegacyMMS, rel: "a.jpg", ok: false},
+		{name: "legacy MMS review permanent", src: source.LegacyMMSReview, rel: "permanent/ab/a.jpg", want: "/permanent-imessage/ab/a.jpg", ok: true},
+		{name: "legacy MMS review staging path rejected", src: source.LegacyMMSReview, rel: "a.jpg", ok: false},
 		// Traversal is NOT rejected — it's neutralized to a path contained under base.
 		{name: "signal traversal contained", src: source.Signal, conv: "Harper", rel: "../../etc/passwd", ok: true, base: "/archive/export/Harper"},
 		{name: "imessage traversal contained", src: source.IMessage, conv: "x", rel: "../../etc/passwd", ok: true, base: "/imsg"},

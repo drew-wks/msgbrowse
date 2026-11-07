@@ -534,7 +534,7 @@ func sourceSlug(src string) string {
 	switch src {
 	case source.Signal:
 		return "src-signal"
-	case source.IMessage:
+	case source.IMessage, source.LegacyMMS:
 		return "src-imessage"
 	case source.WhatsApp:
 		return "src-whatsapp"
