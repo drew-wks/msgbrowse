@@ -111,6 +111,67 @@ func TestAppointmentReminderWithoutEmail(t *testing.T) {
 	}
 }
 
+func TestOptOutExcludesWholeThreadAndKeepsOrphanedBucket(t *testing.T) {
+	for _, word := range []string{"STOP", "quit", " Stop \n"} {
+		msgs := []signal.Message{
+			{Conversation: "+15551234567", Sender: "+15551234567", Body: "synthetic notice"},
+			{Conversation: "+15551234567", Sender: signal.OwnerSender, Body: word},
+		}
+		kept, counts := FilterExcluded(msgs, ExclusionPolicy{OptOutThreads: true})
+		if len(kept) != 0 || counts[OptOutThreadRule] != 2 {
+			t.Fatalf("%q should exclude its entire thread: kept=%d counts=%v", word, len(kept), counts)
+		}
+	}
+	for _, msg := range []signal.Message{
+		{Conversation: "+15551234567", Sender: signal.OwnerSender, Body: "please stop"},
+		{Conversation: "+15551234567", Sender: "+15551234567", Body: "STOP"},
+	} {
+		kept, _ := FilterExcluded([]signal.Message{msg}, ExclusionPolicy{OptOutThreads: true})
+		if len(kept) != 1 {
+			t.Fatalf("non-owner or multiword opt-out excluded: %+v", msg)
+		}
+	}
+	orphaned := []signal.Message{{Conversation: "orphaned", Sender: signal.OwnerSender, Body: "stop"},
+		{Conversation: "orphaned", Sender: "Someone else", Body: "unrelated"}}
+	kept, _ := FilterExcluded(orphaned, ExclusionPolicy{OptOutThreads: true})
+	if len(kept) != 2 {
+		t.Fatalf("orphaned is not one thread: kept=%d", len(kept))
+	}
+	// A known blocked thread remains excluded when a later export omits STOP.
+	kept, _ = FilterExcluded([]signal.Message{{Conversation: "+15551234567", Sender: "+15551234567", Body: "new notice"}},
+		ExclusionPolicy{OptOutThreads: true, Rules: []config.IMessageExclusion{{Name: "known-opt-out", Conversation: "+15551234567"}}})
+	if len(kept) != 0 {
+		t.Fatal("known opt-out thread reimported after STOP disappeared")
+	}
+}
+
+func TestOptOutImportRemainsBlockedAfterSourceOmitsReply(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "+15551234567.txt")
+	write := func(text string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("May 20, 2020  9:10:11 AM\n+15551234567\nSynthetic promotion\nattachments/missing.jpeg\n\nMay 20, 2020  9:10:12 AM\nMe\nSTOP\n\n")
+	st, err := store.Open(filepath.Join(t.TempDir(), store.DBFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	policy := ExclusionPolicy{OptOutThreads: true, Rules: []config.IMessageExclusion{{Name: "known-opt-out", Conversation: "+15551234567"}}}
+	first, err := Run(context.Background(), st, Options{ArchiveRoot: root, Exclusions: policy})
+	if err != nil || first.MessagesAdded != 0 || scalar(t, st, `SELECT COUNT(*) FROM conversations WHERE source='imessage'`) != 0 {
+		t.Fatalf("opt-out import retained messages or missing media: %+v, %v", first, err)
+	}
+	write("May 20, 2020  9:10:11 AM\n+15551234567\nSynthetic promotion\n\nMay 20, 2020  9:10:13 AM\n+15551234567\nNew synthetic promotion\n\n")
+	second, err := Run(context.Background(), st, Options{ArchiveRoot: root, Exclusions: policy})
+	if err != nil || second.MessagesAdded != 0 || scalar(t, st, `SELECT COUNT(*) FROM messages`) != 0 {
+		t.Fatalf("known blocked thread reimported after STOP disappeared: %+v, %v", second, err)
+	}
+}
+
 func TestLedgerUsesGUIDBeforeHash(t *testing.T) {
 	msgs := []signal.Message{
 		{Conversation: "Friend", Sender: "Friend", Body: "same text", SourceGUID: "removed"},

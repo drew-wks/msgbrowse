@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -37,6 +39,31 @@ func TestGalleryImagesTab(t *testing.T) {
 	// The fixture has Harper/media/cabin.jpg — its media URL should appear.
 	if !contains(body, "/media/"+itoa(conv.ID)+"/media/cabin.jpg") {
 		t.Errorf("images tab missing fixture image URL")
+	}
+}
+
+func TestGalleryShowsLocalMediaStorage(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	permanent := filepath.Join(srv.rootsCfg.DataDir, "media", "imessage")
+	preview := filepath.Join(srv.rootsCfg.DataDir, "derived")
+	for _, folder := range []string{permanent, preview} {
+		if err := os.MkdirAll(folder, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(permanent, "stored.jpg"), make([]byte, 2048), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(preview, "cached.jpg"), make([]byte, 1024), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/media", "/gallery?tab=files"} {
+		body := get(t, srv, path).Body.String()
+		for _, want := range []string{permanent, preview, "Permanent iMessage media", "Regenerable preview cache", "2.0 KB", "1.0 KB"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing storage detail %q", path, want)
+			}
+		}
 	}
 }
 

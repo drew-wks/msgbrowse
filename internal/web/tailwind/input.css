@@ -454,10 +454,42 @@ body {
    the base .drawer-side rules keep the fixed full-height overlay drawer.
    48rem is Tailwind's md breakpoint — keep in lockstep with the template's
    md:drawer-open. */
+.sidebar-resize-handle { display: none; }
 @media (min-width: 48rem) {
   .app-shell > .drawer-side {
     height: 100%;
     overflow-y: hidden;
+  }
+  .app-shell .app-sidebar {
+    position: relative;
+    width: var(--msgbrowse-sidebar-width, 20rem);
+  }
+  .sidebar-resize-handle {
+    display: block;
+    position: absolute;
+    z-index: 2;
+    inset-block: 0;
+    right: 0;
+    width: 8px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .sidebar-resize-handle::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    left: 3px;
+    width: 2px;
+    background: transparent;
+  }
+  .sidebar-resize-handle:hover::after,
+  .sidebar-resize-handle:focus-visible::after,
+  .sidebar-resize-handle.dragging::after {
+    background: var(--color-primary);
+  }
+  .sidebar-resize-handle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
   }
 }
 
@@ -826,7 +858,7 @@ body {
   color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
 }
 
-/* --- Sidebar (320px) ----------------------------------------------------- */
+/* --- Sidebar (320px initial desktop width; draggable divider) ----------- */
 /* "Filter conversations" input: 36px, app-bg fill, slate border, search glyph. */
 .sidebar-filter {
   height: 36px;
@@ -889,10 +921,11 @@ body {
   font-weight: 600;
   color: var(--color-base-content);
 }
-.conv-count {
+.conv-last-date {
   flex-shrink: 0;
   font-size: 11px;
-  color: color-mix(in oklab, var(--color-base-content) 42%, transparent);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in oklab, var(--color-base-content) 56%, transparent);
 }
 .conv-preview {
   display: block;
@@ -904,9 +937,9 @@ body {
   color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
 }
 
-/* --- Avatars (monogram) + presence dots (REQ-0006-004) ------------------- */
-/* Colored circle, white 600-weight initials. The bg-*-500 class (avatarColor)
-   carries the fill; this rule carries the shape/typography. */
+/* --- Avatars + presence dots (REQ-0006-004) ------------------------------- */
+/* Colored circle with a message count. The bg-*-500 class (avatarColor)
+   carries the fill; smaller type keeps five- and six-digit counts legible. */
 .avatar-mono {
   position: relative;
   flex-shrink: 0;
@@ -919,9 +952,12 @@ body {
   color: #fff;
   font-size: 12px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
   user-select: none;
 }
+.avatar-count-lg { font-size: 10px; }
+.avatar-count-xl { font-size: 9px; letter-spacing: -0.03em; }
 /* Presence dot: bottom-right, source-colored, 2px border matching the surface
    behind it (the sidebar is base-300). */
 .presence-dot {
@@ -2544,6 +2580,43 @@ a.cal-day:hover {
 }
 
 /* --- Media -------------------------------------------------------------- */
+/* Folder sizes are local file-byte sums, separate from gallery item counts. */
+.media-storage {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-neutral);
+  border-radius: var(--surface-radius-dense);
+  background: var(--color-base-200);
+}
+.media-storage-entry { min-width: 0; }
+.media-storage-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 12px;
+}
+.media-storage-heading strong {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.media-storage-path {
+  display: block;
+  margin-top: 0.3rem;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+}
+.media-storage-note {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: color-mix(in oklab, var(--color-base-content) 52%, transparent);
+}
+@media (max-width: 40rem) {
+  .media-storage { grid-template-columns: minmax(0, 1fr); }
+}
 /* Tabs with count badges + accent underline on the active tab. */
 .media-tabs {
   display: flex;

@@ -23,6 +23,7 @@ const (
 	FilteredSMSRule         = "filtered_sms_sender"
 	EmailReminderRule       = "email_appointment_reminder"
 	AppointmentReminderRule = "appointment_reminder"
+	OptOutThreadRule        = "owner_opt_out_thread"
 )
 
 var shortCodeRe = regexp.MustCompile(`^[0-9]{5,6}(?:\s*\([^)]*\))?$`)
@@ -35,6 +36,7 @@ type ExclusionPolicy struct {
 	FilteredSMS          bool
 	EmailReminders       bool
 	AppointmentReminders bool
+	OptOutThreads        bool
 	Rules                []config.IMessageExclusion
 }
 
@@ -51,7 +53,7 @@ type ExclusionPreview struct {
 
 // ValidateExclusions rejects ambiguous rules before any archive writes.
 func ValidateExclusions(policy ExclusionPolicy) error {
-	seen := map[string]bool{ShortCodeRule: true, FilteredSMSRule: true, EmailReminderRule: true, AppointmentReminderRule: true}
+	seen := map[string]bool{ShortCodeRule: true, FilteredSMSRule: true, EmailReminderRule: true, AppointmentReminderRule: true, OptOutThreadRule: true}
 	for i, rule := range policy.Rules {
 		if strings.TrimSpace(rule.Name) == "" || strings.TrimSpace(rule.Conversation) == "" {
 			return fmt.Errorf("imessage_exclusions[%d] requires name and conversation", i)
@@ -72,6 +74,18 @@ func ValidateExclusions(policy ExclusionPolicy) error {
 func FilterExcluded(msgs []signal.Message, policy ExclusionPolicy) ([]signal.Message, map[string]int) {
 	kept := make([]signal.Message, 0, len(msgs))
 	counts := make(map[string]int)
+	// The exporter collects unrelated, unassociated messages into one
+	// "orphaned" file. An opt-out there cannot identify a whole thread.
+	if policy.OptOutThreads && len(msgs) > 0 && msgs[0].Conversation != "orphaned" {
+		for _, msg := range msgs {
+			body := strings.TrimSpace(msg.Body)
+			if msg.Sender == signal.OwnerSender &&
+				(strings.EqualFold(body, "stop") || strings.EqualFold(body, "quit")) {
+				counts[OptOutThreadRule] = len(msgs)
+				return kept, counts
+			}
+		}
+	}
 	for _, msg := range msgs {
 		matched := false
 		if policy.ShortCodes && (shortCodeRe.MatchString(msg.Sender) || shortCodeRe.MatchString(msg.Conversation)) {
@@ -168,7 +182,7 @@ func PreviewExclusions(root string, policy ExclusionPolicy) (ExclusionPreview, e
 // exclusionStateHash changes incremental state when policy changes, so a
 // previously skipped message becomes eligible after its rule is removed.
 func exclusionStateHash(fileHash string, policy ExclusionPolicy) (string, error) {
-	if len(policy.Rules) == 0 && !policy.ShortCodes && !policy.FilteredSMS && !policy.EmailReminders && !policy.AppointmentReminders {
+	if len(policy.Rules) == 0 && !policy.ShortCodes && !policy.FilteredSMS && !policy.EmailReminders && !policy.AppointmentReminders && !policy.OptOutThreads {
 		return fileHash, nil
 	}
 	encoded, err := json.Marshal(policy)

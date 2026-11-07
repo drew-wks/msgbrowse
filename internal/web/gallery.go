@@ -1,6 +1,8 @@
 package web
 
 import (
+	"context"
+	"io/fs"
 	"mime"
 	"net/http"
 	"net/url"
@@ -9,9 +11,62 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/joestump/msgbrowse/internal/archivepath"
 	"github.com/joestump/msgbrowse/internal/source"
 	"github.com/joestump/msgbrowse/internal/store"
 )
+
+type mediaStorageFolder struct {
+	Path string
+	Size string
+}
+
+// folderFileBytes sums regular files without following nested symlinks. A
+// missing folder is an empty archive; the configured path is still displayed.
+func folderFileBytes(ctx context.Context, folder string) (int64, error) {
+	if folder == "" {
+		return 0, nil
+	}
+	root, err := filepath.EvalSymlinks(folder)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	err = filepath.WalkDir(root, func(_ string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
+}
+
+// mediaStorageFolder reports the configured folder and current file-byte sum.
+func (s *Server) mediaStorageFolder(ctx context.Context, folder string) mediaStorageFolder {
+	result := mediaStorageFolder{Path: folder, Size: "0 B"}
+	size, err := folderFileBytes(ctx, folder)
+	if err != nil {
+		s.log.Warn("media storage size unavailable", "folder", folder, "error", err)
+		result.Size = "Unavailable"
+		return result
+	}
+	result.Size = humanSize(size)
+	return result
+}
 
 // galleryFilterForm is the re-renderable filter state for the gallery.
 type galleryFilterForm struct {
@@ -81,6 +136,8 @@ type galleryLinksData struct {
 
 type galleryData struct {
 	baseData
+	PermanentMedia mediaStorageFolder
+	PreviewCache   mediaStorageFolder
 	// FilterConversations feeds the conversation dropdown: the lightweight
 	// id+name listing, NOT the sidebar summaries, so partial renders never need
 	// the expensive listing (SPEC-0008 REQ-0008-006). Ordered alphabetically.
@@ -138,6 +195,8 @@ func (s *Server) handleGallery(w http.ResponseWriter, r *http.Request) {
 
 	data := galleryData{
 		baseData:                base,
+		PermanentMedia:          s.mediaStorageFolder(ctx, archivepath.IMessageMediaRoot(s.rootsCfg.DataDir)),
+		PreviewCache:            s.mediaStorageFolder(ctx, s.derivedDir),
 		FilterConversations:     refs,
 		ConversationFilterLabel: conversationFilterLabel(form.ConversationIDs, refs),
 		Filter:                  form,

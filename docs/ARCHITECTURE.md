@@ -63,7 +63,10 @@ Optional iMessage exclusion rules run after TXT parsing and before attachment
 retention and `AppendIMessageMessages`. They may omit five- or six-digit sender
 addresses (including exporter-added names in parentheses), `(smsfp)` and
 `(smsft)` filtered-SMS conversations, incoming messages with the exact phrase
-`appointment reminder`, or explicitly named export conversations and phrases. `imessage-import
+`appointment reminder`, entire named conversations with an owner-sent whole-message
+`stop` or `quit` (case-insensitive), or explicitly named export conversations and phrases.
+The opt-out rule skips the exporter's mixed `orphaned` bucket because it is not
+a single thread. `imessage-import
 --preview-exclusions` parses the export and reports aggregate rule counts
 without opening the archive database or copying media. The policy is included
 in incremental ingest state, so changing rules rescans unchanged TXT files.
@@ -125,6 +128,13 @@ The paths have distinct owners and lifetimes:
 <data_dir>/derived/<path-hash>.jpg      regenerable HEIC/HEIF/TIFF browser previews
 <data_dir>/backups/snapshot-.../...       default snapshot location; configurable
 ```
+
+The Media page shows the configured permanent iMessage media folder and the
+regenerable preview-cache folder, with the current sum of regular file bytes
+in each. These are local folder sizes, not gallery item counts; other sources
+may retain files in their separate export roots. The sidebar shows each
+conversation's archived message count in its colored circle and the date of
+its latest archived message at the right of the title row.
 
 For manual CLI exports, `imessage_archive_root` points to `<export_dir>`.
 Providers instead runs the exporter into staging and adopts the result under
@@ -513,6 +523,45 @@ cannot be identified from exporter TXT alone. Historical backups may not retain
 that classification; their unclassified records need separate review. Existing
 pre-cleanup backups still contain the removed messages and media, so restoring
 one would require repeating this owner-directed cleanup.
+
+## Transactional and opt-out cleanup (2026-11-07)
+
+Five exact transactional conversations (Verizon, Lowe's, United Airlines, and
+the numeric AT&T sender) and 18 one-to-one threads with an owner-sent whole-message
+`stop` or `quit` were identified in the configured archive. A full snapshot,
+`snapshot-20261107-133827`, was verified before cleanup. A transaction recorded
+the Apple GUID and hash of each of the 69 selected messages in the exclusion
+ledger, then removed the 23 conversations and their messages. Nine permanent
+media files referenced only by those messages were removed after the transaction.
+No selected message lacked an Apple GUID.
+
+The local config now enables `imessage_exclude_opt_out_threads` and has exact
+conversation rules for all 23 identified threads plus five verified sender
+aliases. The dynamic rule excludes all messages in an export conversation when
+one owner message is exactly `stop` or `quit`, ignoring case and surrounding
+whitespace. The exact rules cover known threads when a later export omits that
+reply. Exporter renames or new sender aliases can still require a new exact rule;
+the GUID ledger protects the already removed messages. Nine owner opt-out
+messages occur in the shared `orphaned` bucket of 14,737 unrelated records;
+no thread-wide exclusion was applied there because the archive lacks a reliable
+thread identity for those rows. That bucket also has messages mentioning these
+brands; a body mention alone is insufficient to classify an unrelated archived
+message as transactional.
+
+The configured archive now has **65,729 iMessage messages** and **836** exclusion
+ledger entries. SQLite integrity and foreign keys pass, and FTS has the same
+65,729 rows. `msgbrowse doctor` reports zero problems and five optional warnings.
+The intermediate snapshot `snapshot-20261107-134510` has SQLite integrity `ok`
+and the same message and ledger counts at that point. A subsequent metadata
+review found 14 more numeric sender threads with explicit Verizon, Lowe's, or
+AT&T branding in archived messages. Their 52 messages were removed in another
+ledger-first transaction: 41 had Apple GUIDs and 11 had only content hashes.
+All 14 numeric addresses now have exact rules in the local config. They had no
+attachment rows. The final archive has **65,677 messages**, **888 ledger
+entries**, SQLite integrity `ok`, and an FTS row count of 65,677. The final
+snapshot is `snapshot-20261107-135038`; its SQLite copy was checked for
+integrity and matching counts. Earlier snapshots still retain excluded content
+and need the owner-directed cleanup repeated if restored.
 
 ## Implementation status
 

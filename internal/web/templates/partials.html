@@ -19,6 +19,7 @@
        delegation (CSP-safe, no inline handlers). */}}
   <script src="/static/theme.js"></script>
   <script src="/static/sidebar-toggle.js" defer></script>
+  <script src="/static/sidebar-resize.js?v=1" defer></script>
   <script src="/static/sidebar.js" defer></script>
   <script src="/static/shell.js" defer></script>
   <script src="/static/copy.js" defer></script>
@@ -127,7 +128,8 @@
 
 {{define "page_end"}}
   </div>
-  {{/* Sidebar (REQ-0006-003): 320px, surface base-300 (#161a20). List only
+  {{/* Sidebar (REQ-0006-003): 320px initial width, resizable on desktop,
+       surface base-300 (#161a20). List only
        (#190): the old Search/Media nav links are gone — both surfaces live in
        the full-width header now (the centered tabs + the search pill/icon). */}}
   <div class="drawer-side z-40">
@@ -146,6 +148,7 @@
          is the flex-1 min-h-0 scroll area. */}}
     <aside class="app-sidebar w-80 h-full bg-base-300 border-r border-neutral flex flex-col"
            hx-boost="true" hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">
+      <div id="sidebar-resize" class="sidebar-resize-handle" role="separator" aria-label="Resize conversation sidebar" aria-orientation="vertical" aria-valuemin="240" aria-valuenow="320" tabindex="0"></div>
       {{/* Filter input — live-narrows the conversation list via sidebar.js
            (bound by id). First thing in the sidebar (#190): it reads as the
            lists' control, and the lists are all the sidebar carries. */}}
@@ -240,20 +243,19 @@
 {{define "conv_row"}}
         <li class="conv-item" data-name="{{humanName .Conv.Name}}">
           <a href="/c/{{.Conv.ID}}" class="conv-row{{if eq .Conv.ID .ActiveID}} conv-row-selected{{end}}">
-            {{/* Monogram avatar — the archive has no avatar images, so we render
-                 initials in a per-conversation deterministic color. A presence
-                 dot bottom-right is colored by source (REQ-0006-004). The whole
-                 monogram is decorative (the name follows as text), so it is
-                 hidden from assistive tech. */}}
-            <span class="avatar-mono {{avatarColor .Conv.Name}}" aria-hidden="true">
-              {{initials .Conv.Name}}
+            {{/* The colored circle carries the message count; the presence
+                 dot still identifies the source. Give screen readers the count
+                 separately because the visual circle is decorative. */}}
+            <span class="avatar-mono avatar-count{{if ge .Conv.MessageCount 10000}} avatar-count-xl{{else if ge .Conv.MessageCount 1000}} avatar-count-lg{{end}} {{avatarColor .Conv.Name}}" aria-hidden="true">
+              {{num .Conv.MessageCount}}
               <span class="presence-dot {{sourceSlug .Conv.Source}}" title="{{humanSource .Conv.Source}}"></span>
             </span>
+            <span class="sr-only">{{num .Conv.MessageCount}} messages</span>
             {{/* min-w-0 lets both lines truncate instead of overflowing the row. */}}
             <span class="min-w-0 flex-1">
               <span class="flex items-baseline justify-between gap-2">
                 <span class="conv-name truncate">{{humanName .Conv.Name}}</span>
-                <span class="conv-count font-mono shrink-0">{{num .Conv.MessageCount}}</span>
+                {{if .Conv.LastTS}}<time class="conv-last-date font-mono shrink-0" datetime="{{dateKey .Conv.LastTS}}" title="Latest message: {{dateLabel .Conv.LastTS}}">{{dateKey .Conv.LastTS}}</time>{{end}}
               </span>
               <span class="conv-preview truncate">
                 {{- if .Conv.LastSender}}<span class="conv-preview-sender">{{humanName .Conv.LastSender}}:</span> {{end}}{{.Conv.LastPreview}}

@@ -46,6 +46,7 @@ func newIMessageImportCommand() *cobra.Command {
 				policy := imessage.ExclusionPolicy{ShortCodes: cfg.IMessageExcludeShortCodes,
 					FilteredSMS:          cfg.IMessageExcludeFilteredSMS,
 					AppointmentReminders: cfg.IMessageExcludeAppointmentReminders,
+					OptOutThreads:        cfg.IMessageExcludeOptOutThreads,
 					EmailReminders:       cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions}
 				result, err := imessage.PreviewExclusions(cfg.IMessageArchiveRoot, policy)
 				if err != nil {
@@ -76,6 +77,11 @@ func newIMessageImportCommand() *cobra.Command {
 						return err
 					}
 				}
+				if policy.OptOutThreads {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d excluded\n", imessage.OptOutThreadRule, result.ByRule[imessage.OptOutThreadRule]); err != nil {
+						return err
+					}
+				}
 				for _, rule := range policy.Rules {
 					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d excluded\n", rule.Name, result.ByRule[rule.Name]); err != nil {
 						return err
@@ -97,6 +103,7 @@ func newIMessageImportCommand() *cobra.Command {
 				Exclusions: imessage.ExclusionPolicy{ShortCodes: cfg.IMessageExcludeShortCodes,
 					FilteredSMS:          cfg.IMessageExcludeFilteredSMS,
 					AppointmentReminders: cfg.IMessageExcludeAppointmentReminders,
+					OptOutThreads:        cfg.IMessageExcludeOptOutThreads,
 					EmailReminders:       cfg.IMessageExcludeEmailReminders, Rules: cfg.IMessageExclusions},
 			})
 			if err != nil {

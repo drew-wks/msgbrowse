@@ -207,6 +207,7 @@ func (im *storeImporter) Import(ctx context.Context, src, root string) (onboard.
 			Exclusions: imessage.ExclusionPolicy{ShortCodes: im.cfg.IMessageExcludeShortCodes,
 				FilteredSMS:          im.cfg.IMessageExcludeFilteredSMS,
 				AppointmentReminders: im.cfg.IMessageExcludeAppointmentReminders,
+				OptOutThreads:        im.cfg.IMessageExcludeOptOutThreads,
 				EmailReminders:       im.cfg.IMessageExcludeEmailReminders, Rules: im.cfg.IMessageExclusions}})
 	case source.WhatsApp:
 		run, err = whatsapp.Run(ctx, im.st, whatsapp.Options{ArchiveRoot: root})

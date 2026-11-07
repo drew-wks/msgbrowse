@@ -39,6 +39,7 @@ type Config struct {
 	IMessageExcludeFilteredSMS          bool `mapstructure:"imessage_exclude_filtered_sms"`
 	IMessageExcludeEmailReminders       bool `mapstructure:"imessage_exclude_email_reminders"`
 	IMessageExcludeAppointmentReminders bool `mapstructure:"imessage_exclude_appointment_reminders"`
+	IMessageExcludeOptOutThreads        bool `mapstructure:"imessage_exclude_opt_out_threads"`
 
 	// WhatsAppArchiveRoot is the path to the WhatsApp-Chat-Exporter output
 	// directory (result.json plus the media folders the tool copied). Read-only,
@@ -355,6 +356,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("imessage_exclude_filtered_sms", false)
 	v.SetDefault("imessage_exclude_email_reminders", false)
 	v.SetDefault("imessage_exclude_appointment_reminders", false)
+	v.SetDefault("imessage_exclude_opt_out_threads", false)
 	v.SetDefault("whatsapp_archive_root", "")
 	v.SetDefault("data_dir", "./data")
 

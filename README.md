@@ -153,16 +153,23 @@ outgoing replies in those conversations. The appointment rule excludes incoming
 messages containing the literal phrase `appointment reminder`
 (case-insensitive), regardless of sender address. Neither rule uses a
 contact-list heuristic.
+The opt-out rule excludes every message in a TXT conversation when an outgoing
+message consists only of `stop` or `quit`, ignoring case and surrounding
+whitespace. It deliberately does not treat the exporter's mixed `orphaned`
+bucket as a single conversation.
 
 ```yaml
 imessage_exclude_short_codes: true
 imessage_exclude_filtered_sms: true
 imessage_exclude_appointment_reminders: true
 imessage_exclude_email_reminders: true
+imessage_exclude_opt_out_threads: true
 imessage_exclusions:
   - name: named-contact-reminder
     conversation: "Example Contact"
     body_contains: "appointment reminder"
+  - name: blocked-transactional-sender
+    conversation: "Example Brand - 1234"
 ```
 
 Each `imessage_exclusions` entry requires a unique `name` and an exact
@@ -171,6 +178,11 @@ matching messages are skipped; without it, incoming and outgoing messages in
 that entire conversation are skipped. Use a named-contact rule only after
 reviewing its match count. Rules apply to `imessage-import`, the combined
 `import` and `sync` commands, and Providers imports.
+Exact conversation rules also keep a known opt-out thread blocked if a later
+export omits its `stop`/`quit` reply. This Mac's local config includes exact
+blocks for the identified Verizon, Lowe's, United Airlines, AT&T, and opt-out
+threads, plus verified numeric and RCS sender aliases. New aliases or renamed export files need
+review and additional exact rules.
 
 Preview counts before import, without opening or writing the SQLite archive or
 copying media:
@@ -261,7 +273,8 @@ archive backups go to `/Users/drew_wilkins/Documents/Messages/archive-backups`.
 For the next mounted source, use a new label, keep the existing reconstruction
 workspace for staging, and set `DATA_DIR` to the configured archive path. The
 former `/Users/drew_wilkins/Documents/Messages/data` remains a rollback copy.
-As of the Seagate import, the archive has 66,413 messages. Another 1,631
+The Seagate import reached 66,413 messages; after owner-directed exclusions,
+the configured archive has 65,677. Another 1,631
 cataloged attachment identifiers still lack bytes in every source examined;
 do not delete Apple/iCloud copies on the basis of the current coverage.
 

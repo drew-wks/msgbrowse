@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -53,6 +54,40 @@ func TestToolbarContextualTitle(t *testing.T) {
 	// It is still the home link (clickable back to home), not a plain heading.
 	if !contains(convPage, `class="toolbar-title" aria-label="msgbrowse home"`) {
 		t.Error("transcript toolbar title should still link home")
+	}
+}
+
+func TestSidebarCountInCircleAndLatestDate(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	conv, err := st.GetConversationByID(context.Background(), 1)
+	if err != nil || conv == nil {
+		t.Fatalf("load conversation: %v", err)
+	}
+	body := get(t, srv, "/").Body.String()
+	start := strings.Index(body, `href="/c/`+itoa(conv.ID)+`" class="conv-row`)
+	if start < 0 {
+		t.Fatal("conversation row missing")
+	}
+	row := body[start:]
+	if end := strings.Index(row, "</a>"); end >= 0 {
+		row = row[:end]
+	}
+	for _, want := range []string{
+		`class="avatar-mono avatar-count`,
+		`<span class="sr-only">` + commaInt(int64(conv.MessageCount)) + ` messages</span>`,
+		`<time class="conv-last-date font-mono shrink-0" datetime="` + dateKey(conv.LastTS) + `"`,
+		`>` + dateKey(conv.LastTS) + `</time>`,
+	} {
+		if !strings.Contains(row, want) {
+			t.Errorf("sidebar row missing %q", want)
+		}
+	}
+	avatar := regexp.MustCompile(`(?s)<span class="avatar-mono avatar-count[^"\n]*" aria-hidden="true">\s*([^<\s]+)`).FindStringSubmatch(row)
+	if len(avatar) != 2 || avatar[1] != commaInt(int64(conv.MessageCount)) {
+		t.Errorf("avatar count = %q, want %q", avatar, commaInt(int64(conv.MessageCount)))
+	}
+	if strings.Contains(row, `class="conv-count`) {
+		t.Error("message count still occupies the date position")
 	}
 }
 

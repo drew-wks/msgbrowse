@@ -18,6 +18,18 @@
     <h1 class="screen-h1 mb-space-1">Media</h1>
     <p class="screen-sub mb-space-5">Images, files, and links across your archive.</p>
 
+    <section class="media-storage mb-space-5" aria-label="Local media storage">
+      <div class="media-storage-entry">
+        <div class="media-storage-heading"><span>Permanent iMessage media</span><strong>{{.PermanentMedia.Size}}</strong></div>
+        <code class="media-storage-path">{{if .PermanentMedia.Path}}{{.PermanentMedia.Path}}{{else}}Not configured{{end}}</code>
+      </div>
+      <div class="media-storage-entry">
+        <div class="media-storage-heading"><span>Regenerable preview cache</span><strong>{{.PreviewCache.Size}}</strong></div>
+        <code class="media-storage-path">{{if .PreviewCache.Path}}{{.PreviewCache.Path}}{{else}}Not configured{{end}}</code>
+      </div>
+      <p class="media-storage-note">Sizes count local files in these folders. Other sources may use separate export folders.</p>
+    </section>
+
     <form class="filter-row filter-row-media mb-space-4" action="/gallery" method="get">
       <input type="hidden" name="tab" value="{{.Filter.Tab}}">
       <div class="filter-control filter-control-conv">
