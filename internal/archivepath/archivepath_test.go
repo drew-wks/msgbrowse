@@ -10,9 +10,10 @@ import (
 
 func TestResolve(t *testing.T) {
 	roots := Roots{
-		Signal:   "/archive",
-		IMessage: "/imsg",
-		WhatsApp: "/wa",
+		Signal:         "/archive",
+		IMessage:       "/imsg",
+		WhatsApp:       "/wa",
+		NexusPermanent: "/nexus",
 	}
 	cases := []struct {
 		name           string
@@ -26,6 +27,8 @@ func TestResolve(t *testing.T) {
 		// WhatsApp is flat like iMessage: the parser stores RelPaths relative to
 		// the whatsapp-chat-exporter output root (SPEC-0009 REQ-0009-006).
 		{name: "whatsapp flat", src: source.WhatsApp, conv: "Ada Fixture", rel: "Message/Media/1555@s.whatsapp.net/photo.jpg", want: "/wa/Message/Media/1555@s.whatsapp.net/photo.jpg", ok: true},
+		{name: "nexus permanent", src: source.Nexus, rel: "permanent/a.jpg", want: "/nexus/a.jpg", ok: true},
+		{name: "nexus export path rejected", src: source.Nexus, rel: "a.jpg", ok: false},
 		// Traversal is NOT rejected — it's neutralized to a path contained under base.
 		{name: "signal traversal contained", src: source.Signal, conv: "Harper", rel: "../../etc/passwd", ok: true, base: "/archive/export/Harper"},
 		{name: "imessage traversal contained", src: source.IMessage, conv: "x", rel: "../../etc/passwd", ok: true, base: "/imsg"},

@@ -33,6 +33,8 @@ type Roots struct {
 	// rel like "Message/Media/<jid>/photo.jpg" — the parser stores RelPaths
 	// root-relative, SPEC-0009 REQ-0009-006).
 	WhatsApp string
+	// NexusPermanent holds retained historical Nexus MMS parts.
+	NexusPermanent string
 }
 
 // IMessageMediaRoot is the archive-owned media tree beside the SQLite file.
@@ -41,6 +43,14 @@ func IMessageMediaRoot(dataDir string) string {
 		return ""
 	}
 	return filepath.Join(dataDir, "media", "imessage")
+}
+
+// NexusMediaRoot is the archive-owned media tree for historical Nexus MMS.
+func NexusMediaRoot(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, "media", "nexus")
 }
 
 // IMessagePermanentPrefix distinguishes retained media from exporter paths.
@@ -52,6 +62,7 @@ const IMessagePermanentPrefix = "permanent/"
 //   - signal:   <roots.Signal>/export/<conversation>/<rel>
 //   - imessage: <roots.IMessage>/<rel>  (flat export; rel like "attachments/…")
 //   - whatsapp: <roots.WhatsApp>/<rel>  (flat export; rel like "Message/Media/…")
+//   - nexus:    <roots.NexusPermanent>/<rel after permanent/>
 func Resolve(src string, roots Roots, convName, rel string) (string, bool) {
 	switch src {
 	case source.IMessage:
@@ -61,6 +72,11 @@ func Resolve(src string, roots Roots, convName, rel string) (string, bool) {
 		return Contain(roots.IMessage, rel)
 	case source.WhatsApp:
 		return Contain(roots.WhatsApp, rel)
+	case source.Nexus:
+		if !strings.HasPrefix(rel, IMessagePermanentPrefix) {
+			return "", false
+		}
+		return Contain(roots.NexusPermanent, strings.TrimPrefix(rel, IMessagePermanentPrefix))
 	default: // signal (and legacy rows with empty source)
 		if roots.Signal == "" {
 			return "", false

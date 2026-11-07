@@ -21,13 +21,17 @@ const (
 	// WhatsApp identifies conversations and messages imported from a
 	// WhatsApp-Chat-Exporter JSON archive (SPEC-0009).
 	WhatsApp = "whatsapp"
+
+	// Nexus identifies historical SMS/MMS copied from Drew's Android Nexus
+	// backups. It is an import-only reconstruction source, not a live provider.
+	Nexus = "nexus"
 )
 
-// All is the canonical list of recognized sources. Validation paths should
-// consult this rather than building their own switch.
+// All is the canonical list of live provider sources. Import-only historical
+// sources do not get exporter, refresh, or disable controls.
 var All = []string{Signal, IMessage, WhatsApp}
 
-// IsKnown reports whether s is a recognized source string.
+// IsKnown reports whether s is a recognized live provider source string.
 func IsKnown(s string) bool {
 	for _, k := range All {
 		if k == s {
@@ -48,6 +52,8 @@ func Label(s string) string {
 		return "iMessage"
 	case WhatsApp:
 		return "WhatsApp"
+	case Nexus:
+		return "Nexus SMS/MMS"
 	default:
 		return s
 	}

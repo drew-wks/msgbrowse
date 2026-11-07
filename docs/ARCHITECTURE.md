@@ -2,6 +2,8 @@
 
 This is the architecture reference for this fork's iMessage archival behavior. The existing [upstream architecture](../ARCHITECTURE.md) describes msgbrowse as a whole. The Stage 1 assessment was based on commit `043562ae667e1fbc01b9c5609a49db8b12625eaf`; Stage 2 adds code and synthetic tests. Stage 3 validated limited real iMessage and SMS exports. A seven-snapshot, GUID-aware reconstruction validated message overlap and retained available media in an isolated archive; that reconstruction and later Drew-labeled historical backups are now in the configured local archive. Complete attachment recovery remains unverified.
 
+The remaining work and backup hold are tracked in the [historical reconstruction workplan](RECONSTRUCTION-WORKPLAN.md).
+
 ## Purpose and scope
 
 Apple Messages with Messages in iCloud remains the active messaging system. This fork aims to retain a searchable, local history after a user deletes selected older messages from Apple Messages to reduce iCloud storage. The archive must survive source deletion and remain usable offline. Repeated ingestion must add new content without removing earlier archived content.
@@ -469,9 +471,52 @@ These are pre-iOS-13 backups with flat hashed files and `Manifest.mbdb`. `imessa
 
 Six earlier Drew-labeled databases used legacy `msg_group`/`madrid` tables rather than the modern `chat` schema. A private bridge export selected text records with a clear address or handle and direction; it omitted rows with an explicit legacy room name. For iMessages, 272 previously unseen Apple `madrid_guid` values were paired with generated GUID-bearing HTML; the old direction bit was checked against 1,770 matching messages already in the archive. For SMS, the bridge used only flags 2/3 with an address and text, converted mixed Unix and Apple epoch dates to local time, rejected exact timestamp/body/direction matches already archived, and deduplicated overlaps among the six backups. The source SMS direction matched all 707 exact archive comparisons examined. The bridge staged 2,158 SMS records; 2,134 were new after msgbrowse's own hash check. It omitted 35 short-code records before import. The isolated bridge archive passed SQLite integrity and repeated imports added zero; production repeats also added zero. These were one-off private staging conversions, not a general legacy-backup command in the repository.
 
-The older `madrid_attachment` table contained 106 records in the March 2013 backup. Opaque message attachment blobs gave a unique message-GUID association for 105, all with available files; one association was ambiguous and omitted. A dry run found all 105 linked to archived messages, and the actual source-assets pass added zero because these attachment GUIDs and bytes were already retained. Legacy MMS `msg_pieces` media remain unimported. A later read-only check found 147 of 149 March 2013 media parts map uniquely to available `Manifest.mbdb` files by `message_id` and `part_id`; one unmatched part has inline bytes and one file mapping is ambiguous. Linking parts to archived parent messages and retaining them has not been implemented or validated. Blank or undated legacy rows, unclear direction or address rows, legacy group records without a reliable one-to-one handle, and any attachment-only rows not represented by TXT remain outside this import. The bridge also cannot reconstruct Apple Messages' historical Unknown Senders classification. Do not treat this as a complete reconstruction of every old backup row.
+The older `madrid_attachment` table contained 106 records in the March 2013 backup. Opaque message attachment blobs gave a unique message-GUID association for 105, all with available files; one association was ambiguous and omitted. A dry run found all 105 linked to archived messages, and the actual source-assets pass added zero because these attachment GUIDs and bytes were already retained. Legacy MMS `msg_pieces` media remain unimported. The later Black Seagate file-index audit resolved all 149 March 2013 image/video part observations: 148 hashes are cataloged with their bytes present in the archive, and the one uncataloged image (212,857 bytes) belongs to a parent with an unresolved direction flag. This supersedes the earlier 147-of-149 estimate, which did not resolve the inline video and the file-index collision. The source part's declared MIME type does not always match the file bytes; preview rows can point to JPEG files. Linking parts to verified parent messages and importing any new MMS has not been implemented or validated. Blank or undated legacy rows, unclear direction or address rows, legacy group records without a reliable one-to-one handle, and any attachment-only rows not represented by TXT remain outside this import. The bridge also cannot reconstruct Apple Messages' historical Unknown Senders classification. Do not treat this as a complete reconstruction of every old backup row.
 
 The later owner review resolved two of the four uncertain labels without opening their message contents. A June 2009 backup named “Apple’s iPhone” has the same device identifier and serial as later “Drew’s iPhone” backups, but its `.mddata` SMS database contains zero messages. “Carol’s iPad” is excluded as a different owner. Both backups named “Siemens” are iOS 4 iPads with zero messages; their ownership remains unproven and they were not imported. The two already Drew-labeled `.mddata` backups contain 455 (June 2009) and 1,481 (April 2010) messages. Their SQLite databases passed integrity checks. After overlap and short-code filtering, 8 and 35 text records were staged, respectively; isolated repeats added zero duplicates, and production imports added **zero** new messages because msgbrowse recognized all staged records as already archived. The April 2010 backup also has 88 `msg_pieces` rows, including 36 media parts, which remain outside the archive pending a legacy MMS importer.
+
+After Black Seagate was remounted, a read-only inventory of its June 2017
+Time Machine snapshot found 19 MobileSync backup folders. Ten have a Drew
+owner label; the other nine remain excluded as other-owner or unverified.
+Eight Drew-labeled backups from 2009–2013 have accessible SMS databases.
+Successive 2010–2013 databases contain overlapping `msg_pieces` tables of
+88, 131, 165, 275, 305, and 451 rows; these are snapshot observations,
+not independent additions. Their 552 image/video part observations all have
+source parent rows. A read-only pass resolved every part to an available
+backup file or inline bytes using `Manifest.mbdb` or, for April 2010,
+`.mdinfo` metadata. They reduce to 165 distinct SHA-256 hashes: 101 are
+already referenced by archive attachment rows with byte-verified files, and
+64 are not. The 64 uncataloged image/video files (14,559,497 bytes) were
+copied to private, hash-verified staging along with six small source SMS
+databases and file indexes. An additional pass found 76 card/location part
+observations with 10 uncataloged distinct hashes, plus an inline PNG under a
+blank MIME type. Blank-type indexed files contributed no further unique
+uncataloged bytes; two blank-type rows had neither indexed nor inline bytes.
+In total, **75 distinct uncataloged part files (14,621,420 bytes)** are in
+local staging. This is reconstruction staging, not permanent archive storage.
+
+The 64 uncataloged hashes occur in 156 part observations tied to 94
+snapshot-specific parent rows. For 91 of those parents, no non-group archive
+message matched the exact local timestamp, flag-derived direction, and
+one-to-one handle; three parents have nonstandard direction flags. The first
+category is an exact-key audit result, not proof that a message is absent
+under every historical conversation assignment. Source SMS text controls
+matched flags 2 and 3 to incoming and outgoing direction across all six
+backups. The 94 parent observations collapse to 57
+date/flag/normalized-handle keys; 19 recur across snapshots without a
+text-part digest or uncataloged-media hash conflict in this check. Fifty-five
+keys have verified flags 2/3 and cover 62 of the 64 uncataloged hashes. All
+55 resolve to a unique existing contact identifier, but its display name is
+still phone-shaped, so historical Unknown Senders status is unproven. None of
+the parent observations matches the current short-code, explicit-conversation,
+or archived one-word opt-out exclusions. The complete reconstructed MMS
+content still needs the ingest exclusion and duplicate checks before import.
+The 10 uncataloged card hashes occur under 11 additional parent keys, also
+without an exact non-group archive candidate. No MMS parent or part was added
+to the configured archive in this pass. Private metadata-only reports are
+`reconstruction/2026-11-07-seagate/reports/black-seagate-legacy-mms-parts.json`,
+`black-seagate-legacy-mms-cards.json`, and
+`black-seagate-legacy-mms-untyped.json` in the same directory.
 
 The configured archive now has **66,413 iMessage records**, up from 56,287, with no duplicate `source_guid` groups and SQLite integrity `ok`. Of **13,359** cataloged attachment GUIDs, **11,728** have bytes and **1,631** remain unavailable, including **843 visible** assets. `msgbrowse doctor` reported zero problems and five warnings for optional, unconfigured sources and semantic embeddings. The pre-import backup is `snapshot-20261107-051619`; the post-import backup is `snapshot-20261107-052840` under `/Users/drew_wilkins/Documents/Messages/archive-backups`. The latter backup's SQLite database passed integrity and contains 66,413 messages, but the snapshot has not yet been restored as a separate Seagate-specific drill. Private exports, normalized copies, and logs are under `/Users/drew_wilkins/Documents/Messages/reconstruction/2026-11-07-seagate`.
 
@@ -682,6 +727,339 @@ messages. A later source snapshot with intact chat joins, especially after
 April 2022, may resolve more. Do not treat this residual bucket as spam or
 delete it solely because its source chat is unknown.
 
+### Blue Seagate Time Machine review (2026-11-07)
+
+The read-only `/Volumes/Blue Seagate 2TB` Time Machine tree contains Mac
+Messages databases in its 2018–2021, August 2023, and January 2026 snapshots,
+plus repeated MobileSync backup folders. The Drew-labeled modern iPhone backup
+dated July 9, 2022 was unencrypted. Ten Drew-labeled older iPhone backup entries
+have 2009–2014 dates matching the earlier Black Seagate inventory; their bytes
+were not independently compared with that drive during this review. Backups
+labeled for other owners or with uncertain ownership were not imported. The
+Mac and iPhone source databases were copied consistently for read-only review;
+Apple Messages and iCloud were not changed.
+
+Exporter 5.0.1 TXT and HTML from each selected source were paired by Apple
+GUID and tested against an isolated SQLite copy before import. The January
+2026 Mac snapshot added **760** messages and **13** native attachment variants;
+August 2023 added **3** messages and **343** variants; the July 2022 iPhone
+backup added **162** messages and **691** variants. June 2021 added **zero**
+messages but supplied **1,153** attachment variants linked to existing
+messages. The 2018–2020 Mac databases added no further GUIDs beyond the 2021
+snapshot and their native scans added zero variants. The 335 June 2021 GUIDs
+absent from the archive were absent from the exporter's HTML too: 272 are
+associated-message rows and 63 have `item_type=1`. They were not fabricated as
+standalone transcript messages.
+
+The iPhone Time Machine backup could not be scanned through external symlinks:
+the native importer deliberately confines attachment reads to its source root.
+Only the SMS database, manifest, and 3,252 linked available files were copied
+into disposable local staging for that pass. The successful scan found 3,259
+available attachment observations, 16 missing file paths, and 63 without a
+source path among archived-message links. Later source snapshots may still
+fill those and other gaps. The native attachment catalog now has **14,506**
+distinct GUIDs, **13,435** with retained bytes and **1,071** without bytes,
+including **609** visible references without bytes. Distinct retained variants
+may share bytes; the archive stores content-addressed files.
+
+These sources added **925** messages to the configured archive, bringing it to
+**66,592**. Forced repeats added zero messages. SQLite integrity, foreign keys,
+and Apple GUID uniqueness passed. Every one of the **7,346** distinct
+permanent files referenced by attachment or native-asset rows existed and
+matched the SHA-256 in its filename, covering **10,580,491,991 bytes**.
+`msgbrowse doctor` reported zero problems and five warnings about optional
+features. A SQLite-only pre-import checkpoint was kept; no new full media
+backup or separate restore drill was made for this incremental pass.
+
+A metadata-only audit over 13 compatible Apple databases first moved **813**
+verified orphaned messages, then found **11** more safe moves after the new
+imports. It rejected four proposed destinations named as four- to six-digit
+short codes, and the reassignment script now keeps those destinations out of
+future moves. The checked transactions preserved message IDs, hashes, GUIDs,
+text, and attachment paths. The archive has **1,335** orphaned messages left;
+the final audit found **110** conflicting source destinations and **1,225**
+without a verified, nonconflicting chat link. A contact name alone does not
+prove which conversation contains an orphaned message.
+
+The Mac `Library/Messages/Archive` folders also contained **2,153** `.ichat`
+file copies across selected 2020–2026 snapshots. A SHA-256 deduplicated local
+source copy retains **1,591** unique Apple keyed archives
+(**317,022,177 bytes**) under the private Blue Seagate reconstruction workspace.
+All copies passed SHA-256 verification. Metadata-only inspection found
+**18,893** distinct message GUIDs: **18,493** already archived, **164** in the
+exclusion ledger, and **236** not represented. The files span 2014–2024 and
+contain iMessage and SMS records; they are not evidence of pre-iMessage iChat
+history. Most novel records have no verified archive conversation from other
+messages in their file, and one has conflicting conversation evidence. Some
+use short-code sender IDs. No `.ichat` messages were imported in this pass;
+decoding text, direction, attachments, exclusion rules, and conversation
+identity requires a separate validated bridge. The retained files allow that
+work without keeping the drive mounted. Disposable TXT/HTML exports, the
+isolated validation archive, and a temporary attachment copy were removed
+after verification.
+
+## Black WD historical source review (2026-11-07 local time)
+
+The mounted `/Volumes/Black WD 1TB- Various` holds 21 Time Machine snapshots
+of Eva's Mac from 2013–2020. This review used only the separate
+`Users/drew_wilkins` profile within them; Eva's profile and the drive's other
+owners' folders were not imported. The Drew profile had 16 distinct Mac
+Messages database states. A copied July 2020 `chat.db` and its read-only
+attachment root produced paired TXT/HTML exports with `imessage-exporter`
+5.0.1. An isolated archive added **600** messages on the first pass and zero
+on repeat. The configured archive then added the same 600 messages and **77**
+native attachment variants. Three other Mac source GUIDs remain outside the
+archive: they have no text, and their source item types are one type-3 row and
+two type-1 rows. They were not synthesized as transcript messages. The source
+drive was not modified.
+
+The same Drew profile held 11 distinct iPhone backup states dated 2014–2016.
+Two are encrypted and were not opened. Eight unencrypted SMS databases were
+copied into private local staging, checked with SQLite, and compared by Apple
+GUID; one of the eight had zero messages. These backups use pre-iOS-13
+`Manifest.mbdb`, which exporter 5.0.1 cannot accept as a backup root. For the
+June 2015 and July 2014 sources, a separate **local copy** of each database
+mapped its attachment paths to available hashed files, then exported as
+paired TXT/HTML. The originals stayed read-only. The June 2015 copy had 123
+available attachment paths of 124 records; the July 2014 copy had 99 of 99.
+Isolated imports added **726** and **241** messages, respectively, and zero
+on repeat. The configured archive reproduced both additions and retained
+**97** and **22** additional native attachment variants. Four other
+unencrypted snapshots were staged and tested after these two; they added no
+messages or assets. Across those sources, 49 source GUIDs remained outside
+the archive and exclusion ledger: 44 came from four- to six-digit short-code
+senders, three had no text and did not appear in the exporter HTML, and two
+were exported but not ingested. The exclusion preview reported two matches for
+an owner-defined brand rule, but per-GUID rule attribution was not retained.
+Those 49 were not forced
+into the archive.
+
+The configured archive now has **68,159 messages** and **14,702** cataloged
+attachment GUIDs, of which **13,631** have retained bytes and **1,071** do
+not. The three Black WD imports added **1,567** messages and **196** native
+attachment variants. All **124** distinct new permanent asset paths exist and
+their **276,125,863 bytes** match the SHA-256 encoded in their filenames.
+SQLite integrity, foreign keys, and source-GUID uniqueness passed. Only
+small SQLite-only checkpoints were made before each configured import; no
+full media backup or restore drill covers this later state. After the checks,
+the replaceable TXT/HTML exports, normalized attachment copies, and isolated
+validation archive were removed. Small source database copies and reports
+remain under
+`/Users/drew_wilkins/Documents/Messages/reconstruction/2026-11-07-black-wd-various`.
+
+A metadata-only orphan audit over the July 2020 Mac and June 2015 iPhone
+databases found four proposed moves from each source, but their destination
+chats conflict. The combined audit rejected all four. `orphaned` therefore
+remains at **1,335** messages; no conversation IDs or message IDs were
+changed in this review.
+
+The Drew profile's iChat container also held `.ichat` files dated 2014–2020.
+SHA-256 comparison with the Blue Seagate retained set found **258** new
+distinct files (**1,198,613 bytes**), copied and hash-verified under the Black
+WD private `source-ichat` directory. Their keyed archives contain **1,196**
+distinct `GUID` fields. Only **one** is absent from the configured archive and
+exclusion ledger, and that GUID is absent from the checked July 2020 Mac,
+June 2015 iPhone, and July 2014 iPhone databases. No `.ichat` record was
+imported without a validated parser and conversation assignment. Together,
+the Blue Seagate and Black WD local `.ichat` copies contain **1,849** distinct
+files and **237** GUIDs not represented in the archive or exclusion ledger.
+
+The drive also holds Drew's Nexus SMS Backup & Restore XML files from
+2008–2017; Drew confirmed ownership. Eleven message XML files
+(607,389,022 bytes) were copied to private local staging and checked against
+their source SHA-256 hashes; call-log XMLs were excluded. The 33,884 SMS
+observations reduce to **9,665** distinct records by exact XML
+date/address/type/body key, and **8,680** after North American phone
+normalization. Sixty normalized date/address/type groups have differing
+bodies, so a stable cross-snapshot identity still needs review. A comparison
+using Toronto-adjusted time, body, and direction found **2,647** records with
+an exact archived candidate: 1,352 had one candidate with matching address
+evidence, 1,190 had two Apple-GUID candidates in one conversation with
+matching address evidence, and 105 had one candidate without address
+agreement. Another 53 had a time/body/direction candidate within two seconds
+(44 dated 2014 and nine dated 2015); these still require address and identity
+review. The remaining **6,965** lack even this close time match and are an
+upper bound on possible new SMS, not a confirmed import count. The duplicate
+Apple rows require a separate audit before any Nexus merge.
+An archive-wide metadata query independently found **1,286** groups sharing
+time, conversation, sender, and body: 1,280 pairs, three triples, and three
+quadruples. Every row in those groups has a distinct Apple GUID, and 1,253
+groups date from 2008–2011. Equal text and time alone do not establish which
+GUID, if any, should be merged, so no archived rows were changed.
+
+The 1,567 MMS observations reduce to **602** when raw date, address, message
+box, and each part's MIME type and content hash are compared. Sorting and
+normalizing the participant numbers reduces these to **503** distinct
+part-signature identities. Three normalized date/participant/box groups have
+two different part signatures; both variants are retained. Of the 602
+raw-address records, 303 have
+inline media. Their **278** distinct inline assets total **129,486,695 bytes**
+and none matched bytes in current permanent media. This corrects the earlier
+878 estimate, which used serialized XML hashes and counted representation
+differences as separate messages. No Nexus message or media has been merged
+into the configured archive: Android records have no Apple GUID, and the
+isolated SMS prototype does not yet link MMS or provide a supported app source.
+The two encrypted iPhone backups and Nexus import remain separate
+reconstruction work. The active Apple Messages database and iCloud were not
+modified.
+
+### Nexus isolated SMS validation (2026-11-07)
+
+The reconstruction-only [`scripts/nexus_sms_import.py`](../scripts/nexus_sms_import.py)
+derives a source-specific hash from each XML date, address, direction, and
+body. All **28,846** SMS and **1,567** MMS observations carrying a
+`readable_date` matched Toronto wall time derived from their numeric date
+field exactly; older SMS lacking that field remain unverified by this check.
+The importer uses `source='nexus'` and leaves `source_guid` empty. It refuses writes
+outside a reconstruction path. Apple rows are held when body and direction
+match within one day of the Toronto-adjusted source time; same-timestamp XML
+body variants, identical source messages within five minutes, configured
+exclusions, empty bodies, and unverified address shapes are also held. These
+are conservative admission rules, not a complete
+cross-platform identity proof. A persistent hold table in the isolated copy
+keeps a later single-snapshot import from admitting previously held records.
+
+The read-only classification found **5,001** provisional SMS additions and
+**3,679** held identities among 8,680 normalized SMS records. Applying them to
+a consistent SQLite-only copy of the configured archive increased its count
+from **68,159** to **73,160**. A full repeat added zero, and 11 individual
+snapshot reimports added zero. The first prototype had admitted 12 held
+records on partial reimports; persisting held identities fixed that failure.
+A second rebuild corrected raw phone formatting; the earlier isolated pass
+had 971 extra provisional additions. SQLite integrity, foreign keys, FTS indexing,
+loopback home/conversation/search responses, and bytewise comparison of all
+preexisting Apple and attachment rows passed on the corrected copy. Of the added source
+records, 4,452 had a nonnumeric contact name
+in at least one XML snapshot, 38 had only an address-like label, and 511 had
+no named-contact evidence. These categories must not be presented as Apple's
+Unknown Senders filter. Among 695 ledger-excluded Apple rows still present in
+an older restore copy, none had a Nexus SMS match by time, body, and
+direction. The remaining 188 ledger GUIDs were all found in locally retained
+read-only Apple databases. Thirty-six date from 2010–2014 and have source
+text; six of these GUIDs match four distinct Nexus SMS identities by body,
+direction, and time within one day. All four Nexus identities were already
+held by the importer. The other 152 GUIDs date from 2022–2026, after the
+Nexus source ends in 2017. This comparison covers the known ledger rows in
+available source snapshots but cannot prove identity after text changes.
+An additional metadata-only audit found 428 single-address Nexus
+conversations: 101 addresses matched one existing contact identifier
+(4,138 messages), 12 matched multiple contacts (26 messages), and 315
+matched none (1,092 messages). All 101 uniquely matched archive contacts
+have phone-shaped display names; 63 of those Nexus addresses carry a named
+contact label in an XML snapshot. No contact link was assigned from this
+comparison. It does not resolve handle reuse, ambiguous contacts, or groups.
+
+The **278** distinct Nexus MMS inline assets were decoded to isolated
+`staged-nexus-media` (129,486,695 bytes) and all rehashed successfully. The
+reconstruction-only [`scripts/nexus_mms_import.py`](../scripts/nexus_mms_import.py)
+then added **488** MMS and **284** attachment references to the isolated copy,
+holding eight records with unverified participants, four empty records,
+one possible Apple overlap, and two near-source duplicate candidates. Those references point to **275** independently
+copied files (**127,611,260 bytes**) under `media/nexus`; every filename
+SHA-256 matched its bytes. The full repeat and each of 11 single-snapshot
+reruns added zero messages and attachments. The isolated archive has
+**73,648** messages total, including **5,489** Nexus SMS/MMS. SQLite
+integrity, foreign keys, FTS indexing, and the original Apple and attachment
+rows passed. `archivepath.Resolve` now serves Nexus `permanent/` paths from
+the archive-owned Nexus media root. The local browser returned HTTP 200 for
+home, a Nexus conversation, search, the media gallery, and a sampled MMS
+attachment; the served bytes matched the asset SHA-256.
+
+The configured archive, Apple Messages, and iCloud remain unchanged. Nexus
+is an import-only historical source, outside live provider controls. Contact
+assignments and held ambiguities remain open before a permanent merge.
+
+A follow-up held-record audit found that 2,904 of the 3,008 possible Apple
+SMS overlaps also match the same one-to-one handle within one day; 104 match
+only by body, direction, and time. The 133 unverified SMS addresses comprise
+90 emails, 40 blank values, and three numeric addresses of other lengths.
+Among 15 held MMS, four contain inline media; three distinct files totaling
+1,875,435 bytes occur only in held MMS and remain in verified local staging.
+
+Across 428 one-to-one Nexus conversations, 118 source addresses have one
+stable named contact label in imported SMS (4,424 messages), one has multiple
+labels (35 messages), and 309 have no named label (542 messages). The private
+metadata review is `reconstruction/2026-11-07-black-wd-various/reports/nexus-contact-review.csv`.
+No cross-source contact link was made from a label or phone number alone.
+
+The reconstruction-only [`scripts/nexus_checked_merge.py`](../scripts/nexus_checked_merge.py)
+created a private plan against the configured archive but did not apply it
+there. It checks the full source XML digest, current exclusions and overlap
+classification, unchanged preexisting messages and attachments, exclusion
+ledger, Nexus rows, and media SHA-256. Applying requires an explicit saved
+plan and a fresh SQLite-only checkpoint; it never overwrites existing media.
+Applied to a separate validation copy, it added 5,489 messages, 284
+attachment references, and 275 media files. All 5,489 were FTS-indexed;
+SQLite integrity, foreign keys, old-row digests, and media hashes passed.
+A repeated plan added zero, and a stale plan was rejected before a checkpoint
+was made. The configured archive remains at 68,159 messages with zero Nexus
+rows. Black WD is not needed for this local Nexus step. The older Seagate
+`msg_pieces` audit now has hash-verified local source-database and uncataloged
+media copies. Neither source has been merged into the configured archive.
+
+### Retained `.ichat` first-pass audit (2026-11-07)
+
+A read-only `plistlib` pass decoded all 1,849 locally retained Apple keyed
+`.ichat` files from Blue Seagate and Black WD without parse errors. Their
+21,889 message objects contain 19,974 distinct GUIDs. Of these, 19,573
+already exist in the configured archive, 164 are absent there but present
+in the exclusion ledger, and 237 are in neither. All 237 have nonempty text
+in the keyed archive and none has an exact timestamp-and-body match to an
+archived message. Their years are 2014 (one), 2022 (113), 2023 (106), and
+2024 (17).
+
+For each file, the archived GUIDs were compared with archive chat IDs. Among
+the 237 unrepresented GUIDs, 14 occur in a file whose archived messages all
+point to one chat, 222 have no archived chat in their file, and one occurs in
+a file with mixed chat evidence. This is only a destination audit; no `.ichat`
+message or attachment was imported. Sender, direction, ownership, exclusion,
+and media checks remain necessary, and in-file chat evidence alone cannot
+resolve the other 223 GUIDs. The configured archive was not changed.
+Although `PresentityIDs` identifies one nonowner handle for 226 of the 237,
+matching that handle against current one-to-one archive conversation handles
+is not enough: 105 yield one apparent destination, but 12 of those disagree
+with the destination established by archived GUIDs in the same file. A
+historical handle alone therefore does not authorize a move or import.
+Matching the complete `PresentityIDs` roster across files gives 36 of the
+222 without in-file chat evidence one apparent archive chat, 54 conflicting
+chats, and 132 none. It conflicts with in-file evidence for 13 of the 14
+stronger candidates. These conflicts show why a current handle or roster
+cannot by itself establish the historical chat destination.
+For the 14 messages with one in-file chat candidate, all are one-to-one
+and have nonempty source text. Thirteen have a flag with a consistent
+direction among archived controls, and 12 have sender identifiers seen with
+that direction. These candidates occur in three files with 12 archived
+control messages. All control timestamps and 10 of 12 control bodies match
+the archive byte-for-byte. The file containing 12 candidates has a
+body mismatch in its sole archived control. Its text representation
+needs validation before a checked import of those candidates.
+
+### Reconstruction staging cleanup (2026-11-07)
+
+The configured archive and its exclusion ledger were not changed. Local
+export, isolated-archive, and restore-check media were hashed against the
+configured permanent media. The comparison identified **10,546** redundant
+export attachment files, **1,763** redundant isolated-archive media files,
+**574** redundant derived previews, and **6,589** redundant restore-check
+media files; only those byte-verified duplicates were removed. The surviving
+`2026-11-06-backups` workspace measures about **4.2 GB**, down from about
+30 GB, and `archive-restore-check-dehydrated` measures about **71 MB**, down
+from 9.1 GB. Both are explicitly marked incomplete. The **9.3 GB** full
+local backup was retained and its SQLite database passed integrity checking.
+
+Unique source bytes were preserved: 78 distinct export media hashes absent
+from permanent media, 14 isolated-archive media files absent from permanent
+media, 78 restore-check media files absent from permanent media, and 182
+files in a separate source-iOS tree absent from permanent media. Hash/path
+manifests remain in private reconstruction reports. Export transcripts were
+retained because 527 source GUIDs remain outside the archive and exclusion
+ledger; an older isolated database also has 859 rows without a simple body
+match. Neither figure is a confirmed missing-message count. This cleanup
+reduced logical file size by about 35 GB, but available APFS space did not
+increase during the check. Local Time Machine snapshots or shared blocks may
+retain physical storage; no snapshot was deleted. After cleanup, the
+configured archive passed SQLite integrity, foreign-key, and `doctor` checks.
+
 ## Implementation status
 
 “Tested (synthetic)” means regression tests use fabricated exports and media.
@@ -696,16 +1074,16 @@ transport for part of the first sample.
 | Unchanged-export skip | Content hash; `--full` reparses and rechecks media | Keep safe optimization | Tested (limited real sample) |
 | Independent repeat export | Fresh export matched original paths and bytes; forced reimport added zero messages | Avoid duplicates across export cycles | Tested (limited real sample; same exporter version and date window) |
 | Append-only messages | TXT-only imports use content hashes; paired imports reuse Apple GUIDs and never delete omitted messages | Preserve existing content | Tested (seven-source isolated reconstruction) |
-| Conversation identity | First observed export filename labels a message; explicit source-metadata recovery moved 12,662 orphaned GUIDs to verified Apple chats without changing message IDs or media | Reconcile the remaining 2,069 orphaned records and split threads across snapshots | Partial |
+| Conversation identity | First observed export filename labels a message; explicit source-metadata recovery moved 13,486 orphaned GUIDs to verified Apple chats without changing message IDs or media | Reconcile the remaining 1,335 orphaned records and split threads across snapshots | Partial |
 | Apple message GUID | Paired exporter 5.0.1 HTML supplies GUIDs; nullable unique `source_guid` persists them | Preserve identity across overlapping snapshots | Tested (seven-source isolated reconstruction; equal-date ties remain) |
-| Independent attachment retention | TXT and native source scans copy bytes to `<data_dir>/media/imessage` with SHA-256 names; later snapshots can fill gaps by attachment GUID | Preserve every available byte variant and report unavailable GUIDs | Tested (11,728 available attachment GUIDs retained; 1,631 unavailable after Seagate) |
+| Independent attachment retention | TXT and native source scans copy bytes to `<data_dir>/media/imessage` with SHA-256 names; later snapshots can fill gaps by attachment GUID | Preserve every available byte variant and report unavailable GUIDs | Tested (13,631 available attachment GUIDs retained; 1,071 unavailable after Black WD) |
 | HEIC browser previews | `imessage-import` runs the existing local converter; `msgbrowse media` rebuilds JPEG cache after restore | Show HEIC images in gallery and transcript while retaining originals | Tested (limited real sample; four local HEIC files) |
 | URL preview retention | Optional read-only source scan copies uniquely matched URL balloon images to permanent media; transcript hides raw URL text and displays the local card image | Preserve link thumbnails independently of Apple-owned caches | Tested (limited real sample; full-history coverage unverified) |
 | Providers refresh | Preserves legacy references before replacing managed export; append import retains existing rows | Preserve existing media and content | Tested (synthetic) |
 | Providers Disable | No iMessage control; request and store deletion guard reject it | Prevent iMessage archive loss | Tested (synthetic) |
 | DB backup | New snapshots include DB, config, and retained media checksums | Back up DB plus permanent media | Tested (seven-source isolated archive, separate restore) |
 | Offline browsing | Local UI/search with existing DB and media | Browse without exporter or source data | Tested (restored seven-source archive over loopback without exporter; source deletion only in limited sample) |
-| Real-history completeness | The seven-source GUID union and selected Drew-labeled 2010–2014 backups reached 66,413 records before owner exclusions; the current archive has 65,667, and available new media hash-checks | Reconcile missing bytes, legacy MMS/group rows, and source omissions before iCloud deletion | Partial |
+| Real-history completeness | The current archive has 68,159 messages after selected Drew-owned Black WD sources; the 124 newly added permanent asset paths passed SHA-256 checks, while the last full permanent-file check covered the earlier Blue Seagate state | Reconcile missing bytes, legacy MMS/group rows, Nexus XML, encrypted backups, and source omissions before iCloud deletion | Partial |
 
 ## Architecture decision log
 

@@ -63,5 +63,6 @@ func EffectiveRoots(cfg *config.Config) archivepath.Roots {
 		IMessage:          EffectiveRoot(cfg, source.IMessage),
 		IMessagePermanent: archivepath.IMessageMediaRoot(cfg.DataDir),
 		WhatsApp:          EffectiveRoot(cfg, source.WhatsApp),
+		NexusPermanent:    archivepath.NexusMediaRoot(cfg.DataDir),
 	}
 }

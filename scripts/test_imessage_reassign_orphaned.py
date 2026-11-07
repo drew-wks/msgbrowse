@@ -241,6 +241,26 @@ class ReassignOrphanedTests(unittest.TestCase):
             self.assertNotIn("g-one", {move.guid for move in preview.moves})
             self.assertEqual(preview.skipped["conflicting_source_destinations"], 1)
 
+    def test_short_code_destination_stays_orphaned(self) -> None:
+        """Do not surface an excluded short-code thread through reassignment."""
+
+        with tempfile.TemporaryDirectory() as folder:
+            source, archive = make_fixture(Path(folder))
+            with closing(sqlite3.connect(source)) as db:
+                db.execute("INSERT INTO chat VALUES(50,'7535',NULL)")
+                db.execute("INSERT INTO message VALUES(6,'g-short')")
+                db.execute("INSERT INTO chat_message_join VALUES(50,6)")
+                db.commit()
+            with closing(sqlite3.connect(archive)) as db:
+                db.execute(
+                    "INSERT INTO messages VALUES(16,'h-short',1,'imessage','g-short')"
+                )
+                db.commit()
+
+            preview = run(source, archive, apply_changes=False)
+            self.assertNotIn("g-short", {move.guid for move in preview.moves})
+            self.assertEqual(preview.skipped["excluded_short_code_destination"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

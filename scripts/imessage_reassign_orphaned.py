@@ -13,6 +13,7 @@ from contextlib import closing
 from dataclasses import dataclass
 import logging
 from pathlib import Path
+import re
 import sqlite3
 from typing import Sequence
 
@@ -177,6 +178,10 @@ def audit(source: sqlite3.Connection, archive: sqlite3.Connection) -> Audit:
             target_name = identifier
             new_names.add(identifier)
             category = "new_source_chat"
+        if re.fullmatch(r"[0-9]{4,6}(?:\s*\([^)]*\))?", target_name):
+            skipped["excluded_short_code_destination"] += len(rows)
+            new_names.discard(target_name)
+            continue
         for guid, record in rows:
             moves.append(
                 Move(record.id, guid, record.hash, target_name, category, is_group)
