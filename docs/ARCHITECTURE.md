@@ -1824,7 +1824,8 @@ for the remaining GUIDs; the mounted July 2024 and October 2026 iPhone
 backups were already checked against the larger pre-recovery gap. The missing
 bytes remain unproven, so active Apple Messages/iCloud deletion is not yet
 safe on attachment-completeness grounds. No current-state full backup and
-restore drill has been completed.
+restore drill had been completed at the time of this attachment audit. A later
+current-state milestone backup and restore check is recorded below.
 
 A targeted check of the **68** remaining GUIDs dated 2025–2026 found 34
 visible attachments and 34 hidden payloads. An exact attachment-GUID lookup
@@ -1848,6 +1849,21 @@ scan of the October 2026 backup found only one present file among the 34
 visible gaps, and it
 belongs to one of the four messages whose bytes are already retained. A
 private metadata-only audit records the original exact-GUID statuses.
+
+### Current-state milestone backup (2026-11-08)
+
+The owner-approved backup at
+`/Volumes/KINGSTON/msgbrowse-milestone-2026-11-08` contains a consistent
+SQLite snapshot, config, iMessage and Nexus media, derived files, and a
+SHA-256 manifest of 9,637 files (about 14 GiB on disk). All copied non-DB
+files matched their source hashes. A separate temporary restore on KINGSTON
+matched every manifest hash; SQLite integrity and foreign keys passed, and
+72,813 messages, 72,813 FTS rows, and all 6,051 attachment references were
+present with their referenced files. The restored browser served home, media,
+and search over loopback with HTTP 200. The temporary restore was removed;
+the primary backup remains. This whole-archive copy includes `media/nexus`,
+which the built-in backup manager does not cover. Later imports or cleanup
+require a newer backup before this state can be considered protected.
 
 ## Implementation status
 
