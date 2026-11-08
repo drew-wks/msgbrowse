@@ -117,6 +117,34 @@ func TestHomeStatStrip(t *testing.T) {
 	}
 }
 
+// TestHomeOrphanedSummary shows the mixed bucket without reading the sidebar
+// list and links to its real conversation ID on full and boosted renders.
+func TestHomeOrphanedSummary(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	result, err := st.DB().Exec(`INSERT INTO conversations(source,name) VALUES('imessage','orphaned')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ hash, sender string }{{"orphan-a", "Person A"}, {"orphan-b", "Person B"}, {"orphan-c", "Me"}} {
+		if _, err := st.DB().Exec(`INSERT INTO messages(hash,conversation_id,ts,ts_unix,sender,body,source)
+			VALUES(?,?,'2026-01-01 12:00:00',1767268800,?,'sample','imessage')`, row.hash, id, row.sender); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rec := range []*httptest.ResponseRecorder{get(t, srv, "/"), getPartial(t, srv, "/")} {
+		body := rec.Body.String()
+		for _, want := range []string{"Orphaned iMessages", "3 messages", "2 from 2 named senders", "1 sent by you", `href="/c/` + itoa(id) + `"`} {
+			if !contains(body, want) {
+				t.Errorf("home orphaned summary missing %q", want)
+			}
+		}
+	}
+}
+
 // TestBoostedNavigation verifies the HTMX-boosted navigation shell (issue #65):
 // the scoped swap target exists, and the shell nav is boosted to swap only
 // #main-content and push the URL (so the sidebar is preserved across navigation).

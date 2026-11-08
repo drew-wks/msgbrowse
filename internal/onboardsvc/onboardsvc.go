@@ -204,6 +204,8 @@ func (im *storeImporter) Import(ctx context.Context, src, root string) (onboard.
 		run, err = ingest.Run(ctx, im.st, ingest.Options{ArchiveRoot: root})
 	case source.IMessage:
 		run, err = imessage.Run(ctx, im.st, imessage.Options{ArchiveRoot: root,
+			RequireAppleFilter:   im.cfg.IMessageExcludeAppleFilters,
+			ExcludedAppleSenders: im.cfg.IMessageExcludedAppleSenders,
 			Exclusions: imessage.ExclusionPolicy{ShortCodes: im.cfg.IMessageExcludeShortCodes,
 				FilteredSMS:          im.cfg.IMessageExcludeFilteredSMS,
 				AppointmentReminders: im.cfg.IMessageExcludeAppointmentReminders,

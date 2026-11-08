@@ -164,6 +164,8 @@ imessage_exclude_filtered_sms: true
 imessage_exclude_appointment_reminders: true
 imessage_exclude_email_reminders: true
 imessage_exclude_opt_out_threads: true
+imessage_exclude_apple_filters: true
+imessage_excluded_apple_senders: ["+15555550101", "+442079460000", "12345", "alerts@example.com"] # optional exact source handles
 imessage_exclusions:
   - name: named-contact-reminder
     conversation: "Example Contact"
@@ -191,18 +193,45 @@ copying media:
 ./bin/msgbrowse --config /absolute/path/to/config.yaml imessage-import --preview-exclusions
 ```
 
-The preview reports counts by rule, not message bodies. Counts cover the current
-TXT export and may include messages already archived. Filtering happens before
+The preview reports counts by TXT rule, not message bodies. It does not include
+Apple database filter values. Counts cover the current TXT export and may
+include messages already archived. Filtering happens before
 attachment copying and SQLite insertion, but the replaceable exporter staging
 files still contain the original messages until separately removed. A policy
 change rescans an unchanged TXT file. Adding a rule does **not** erase messages
 or media already archived; deliberate cleanup must first make a backup and
 record removed message identities in the SQLite exclusion ledger. This prevents
 overlapping GUID-aware imports from recreating those messages. The Apple Messages
-“Unknown Senders” flag is not available in TXT, so future unseen messages in
-that category require an explicit source-metadata review. The local archive's
+“Unknown Senders” flag is not available in TXT. With
+`imessage_exclude_apple_filters: true`, import requires paired TXT and HTML
+exports plus `--apple-filter-db` pointing to the **same** read-only Apple
+Messages database snapshot. The importer excludes exact `chat.is_filtered`
+values **1, 2, 3, 4, and 52**, verified against this owner's iPhone filter
+screenshots, and records each new excluded Apple GUID in the durable ledger.
+`imessage_excluded_apple_senders` also excludes new GUIDs whose source sender
+handle is an exact listed phone number, short code, or email address, even when
+the exporter changes the contact name. The list applies to incoming messages from those handles; it
+requires the same paired Apple source database and does not delete old rows.
+Other nonzero values hold new messages for review; existing archived messages
+are preserved. A source without this optional Apple column cannot provide
+native filter classification, so only the TXT rules apply. The flag values are
+private Apple metadata and are not a general guarantee of iPhone-category
+coverage. When enabled, ordinary TXT-only `imessage-import`, combined
+`import`, `sync`, and Providers imports stop with an error. Use the paired
+reconstruction workflow below for future iMessage imports. The local archive's
 known GUIDs were reviewed against Apple's read-only `chat.db` on 2026-11-07;
 see [validation results](docs/ARCHITECTURE.md#owner-directed-exclusion-cleanup-2026-11-07).
+
+The owner-directed transactional cleanup command is
+[`scripts/transactional_cleanup.py`](scripts/transactional_cleanup.py). It scans
+the current SQLite archive locally, protects substantive two-way and group
+conversations, an owner-reviewed named-sender keep list, and person-shaped
+sender labels. It writes a private identity-only plan. Applying a plan requires
+a new SQLite-only checkpoint and
+records exact source hashes plus Apple GUID/TXT fingerprints before deleting
+rows. Schema v29 rejects reinsertions of those exact identities from any
+importer. This is a conservative sweep of the current archive, not an automatic
+classifier for future unseen messages; ambiguous one-way texts require review.
 
 ### Reassign messages from the exporter’s orphaned bucket
 
@@ -316,11 +345,15 @@ archive backups go to `/Users/drew_wilkins/Documents/Messages/archive-backups`.
 For the next mounted source, use a new label, keep the existing reconstruction
 workspace for staging, and set `DATA_DIR` to the configured archive path. The
 former `/Users/drew_wilkins/Documents/Messages/data` remains a rollback copy.
-The configured archive currently has 73,470 messages after the overlapping
-Apple, Nexus, and older iPhone source passes. Import-only
+The configured archive currently has 72,870 messages after overlapping
+historical imports and owner-directed cleanup. Import-only
 `legacy_sms_review` and `legacy_mms_review` conversations keep recovered old
 material visible without assigning uncertain Apple GUIDs, contacts, or
-directions. Of 14,702 cataloged iMessage attachment identifiers, 1,071 still
+directions. The synthetic `iChat review (unassigned)` conversation holds 118
+additional Apple GUIDs without asserting a historical chat. Two embedded
+images are retained permanently; other `.ichat` attachment markers still need
+byte recovery. Another 119 five- or six-digit sender GUIDs are recorded in the
+exclusion ledger. Of 14,628 cataloged iMessage attachment identifiers, 884 still
 lack bytes in the sources examined. A current full media backup and independent
 restore are still due; do not delete Apple/iCloud copies on the basis of this
 coverage.
@@ -336,7 +369,8 @@ CONFIG="$HOME/Documents/Messages/config.yaml"
 ```
 
 The script checks for exporter 5.0.1, builds msgbrowse, creates separate TXT
-and HTML staging, imports with `--guid-html-root`, then reads the same source
+and HTML staging, imports with `--guid-html-root` and `--apple-filter-db`, then
+reads the same source
 database and backup manifest in read-only mode to retain native attachment
 files omitted by TXT. It keeps private logs under `$WORKSPACE/reports`. A label
 is tied to the backup manifest checksum; an
@@ -345,12 +379,21 @@ Mac snapshot, pass `macOS`, the path to a consistent **copy** of `chat.db`, and
 the original Messages attachment root as the seventh argument. Do not point
 the script at a live changing database: sequential TXT and HTML runs could see
 different messages. The ordinary `msgbrowse export` and Providers flows still
-produce TXT alone; use this paired workflow for overlapping historical
+produce TXT alone; use this paired workflow when the Apple filter guard is
+enabled and for overlapping historical
 snapshots. `--guid-html-root` is validated against exporter 5.0.1, not an
 unbounded exporter compatibility range. The current native iPhone recovery path
 requires an **unencrypted** MobileSync backup; the script rejects an encrypted
 one before exporting. A copied Mac database can use an attachment root copied
 from another Mac.
+
+After owner-directed archive deletion, use paired TXT/HTML imports for any
+overlapping historical snapshot. The deletion ledger blocks matching Apple
+GUIDs across renamed exports. For the 2026-11-07 owner-reviewed orphan cleanup,
+a TXT-only import also blocks the same archived hash or a matching
+message-second-and-body fingerprint, even if the conversation or sender
+display label changes. Changed message times or text can evade this fallback,
+so paired GUIDs are required for a full identity guarantee.
 
 The script requires the newer `Manifest.db` backup layout. Older flat backups
 with `Manifest.mbdb` or `.mddata` files need a separately validated conversion; see the
@@ -373,8 +416,8 @@ same GUID is not yet exposed as a separate revision in the browser. Files
 missing from every source remain unrecoverable by this workflow; compare the
 catalog and archive media before deleting anything from Apple Messages or iCloud.
 
-You can also let msgbrowse invoke the same exporter. With only the iMessage root
-configured, run:
+If `imessage_exclude_apple_filters` is disabled, msgbrowse can invoke the
+exporter with only the iMessage root configured:
 
 ```sh
 ./bin/msgbrowse --data-dir "$DATA_DIR" --imessage-archive-root "$EXPORT_DIR" export

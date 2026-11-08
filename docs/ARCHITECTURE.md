@@ -85,6 +85,13 @@ metadata for GUIDs currently present in that database; future unseen unknown
 senders are not automatically classified by TXT import. No full-history
 exclusion accuracy has yet been established.
 
+Schema v29 also rejects any new message row whose exact hash is in the
+owner-exclusion ledger, and rejects iMessage rows with a recorded Apple GUID.
+This applies to import-only Nexus and legacy sources even when their importers
+do not read the ledger directly. An importer that retries such an excluded row
+receives an explicit error; it cannot silently recreate the row. A new message
+with a different source identity is not automatically excluded by this guard.
+
 **Current:** `msgbrowse export` invokes `imessage-exporter -f txt -c clone -o <imessage_archive_root>`; this normal path does not open `chat.db` ([`internal/cli/export.go`](../internal/cli/export.go), `exportIMessage`). The importer scans top-level `<ChatName>.txt` files, preserves legacy attachment references before source replacement, copies available media to permanent storage, and inserts newly observed messages without deleting old rows ([`internal/imessage/import.go`](../internal/imessage/import.go), `Run` and `importConversation`; [`internal/imessage/media.go`](../internal/imessage/media.go); [`internal/store/imessage_archive.go`](../internal/store/imessage_archive.go)). For overlapping historical snapshots, [`scripts/imessage-reconstruct`](../scripts/imessage-reconstruct) produces TXT and HTML from the same source snapshot. `imessage-import --guid-html-root` pairs Apple's GUID in the HTML with each TXT message using timestamp, sender, and within-group order. It rejects incomplete pairings and uses the GUID to attach later media to an existing row even when an exporter renames the conversation. `imessage-source-assets` then reads the same source database and, for iPhone backups, `Manifest.db` in query-only mode. It records every attachment GUID linked to an archived message, copies each available file into permanent media, and keeps hidden opaque payloads out of the ordinary gallery. The Providers flow still exports into staging and swaps the managed export root, but retains referenced media first ([`internal/onboard/runner.go`](../internal/onboard/runner.go), `execute`; [`internal/onboardsvc/onboardsvc.go`](../internal/onboardsvc/onboardsvc.go), `PreserveBeforeReplacement`).
 
 **Target beyond the current reconstruction:** Determine which attachment bytes remain unavailable in every snapshot, validate more exporter versions and ambiguous same-second ordering, and establish a safe manual deletion procedure. Source deletions must never travel back into the historical archive.
@@ -93,7 +100,7 @@ Other msgbrowse sources (Signal, WhatsApp) share the store's replacement method.
 
 ## Data model and storage
 
-The CLI creates `<data_dir>/msgbrowse.sqlite`; `data_dir` defaults to `./data`. `openStore` creates the directory, and `store.Open` enables WAL, foreign keys, and migrations ([`internal/cli/common.go`](../internal/cli/common.go), lines 16–30; [`internal/config/config.go`](../internal/config/config.go), line 337; [`internal/store/store.go`](../internal/store/store.go), lines 23–67). The database is ordinary SQLite using the pure-Go `modernc.org/sqlite` driver ([`go.mod`](../go.mod), line 21). Schema version is 28: v25 adds unique nullable `messages.source_guid`; v26 retains native attachment bytes and provenance; v27 records attachment GUIDs even when all examined sources lack a file; v28 records owner-directed exclusions ([`internal/store/schema.go`](../internal/store/schema.go)).
+The CLI creates `<data_dir>/msgbrowse.sqlite`; `data_dir` defaults to `./data`. `openStore` creates the directory, and `store.Open` enables WAL, foreign keys, and migrations ([`internal/cli/common.go`](../internal/cli/common.go), lines 16–30; [`internal/config/config.go`](../internal/config/config.go), line 337; [`internal/store/store.go`](../internal/store/store.go), lines 23–67). The database is ordinary SQLite using the pure-Go `modernc.org/sqlite` driver ([`go.mod`](../go.mod), line 21). Schema version is 29: v25 adds unique nullable `messages.source_guid`; v26 retains native attachment bytes and provenance; v27 records attachment GUIDs even when all examined sources lack a file; v28 records owner-directed exclusions; v29 adds an insertion guard for excluded identities ([`internal/store/schema.go`](../internal/store/schema.go)).
 
 | Entity | Current identity and relationship |
 | --- | --- |
@@ -809,6 +816,40 @@ the final audit found **110** conflicting source destinations and **1,225**
 without a verified, nonconflicting chat link. A contact name alone does not
 prove which conversation contains an orphaned message.
 
+### Owner-reviewed `orphaned` cleanup (2026-11-07)
+
+Drew reviewed the 31 nonnumeric sender labels in the remaining `orphaned`
+bucket and chose to retain all except `Lejtman Saul`. He chose to preserve the
+575 outgoing `Me` rows because their recipients cannot be established from the
+sender label. A checked archive transaction removed 122 incoming messages:
+three labeled `Lejtman Saul`, 117 number-like senders, and two email-like
+senders. Their 122 unique Apple GUIDs and archive hashes were inserted into
+`imessage_excluded_messages` before row deletion. The affected rows had no
+retained attachment bytes; 20 link rows and six attachment-observation rows
+cascaded with them. The archive now has 73,466 messages, including 1,213 in
+`orphaned` (638 under selected named senders and 575 `Me` rows). A consistent
+SQLite-only predelete checkpoint and private exact-ID plan were retained.
+SQLite integrity, foreign keys, and FTS removal checks passed.
+
+The cleanup added 122 `content-v1:` fingerprints to the same ledger. Each
+hashes the parsed message second and body without the export conversation or
+sender display label. None collides with a retained iMessage. The importer
+uses these only for TXT-only input; paired input uses Apple's GUID first so
+another real message with the same visible content is not suppressed.
+
+The iMessage importer loads the exclusion ledger before parsing each import
+and checks Apple GUIDs on paired TXT/HTML input. An isolated forced reimport of
+a real historical export containing 48 removed GUIDs added none back. On
+TXT-only input, the importer checks the archived content hash and the
+conversation-independent fingerprint; a controlled isolated import of the
+same historical TXT file admitted 47 removed rows without the ledger and zero
+with it. Renaming the transcript also admitted 47 without the fingerprint and
+zero with it. The other 74 removed GUIDs have no
+retained local `orphaned.html` occurrence for a real-export replay. A later
+TXT-only export with changed message time or body can still evade content
+matching, so GUID-paired historical imports remain necessary for a full
+identity guarantee.
+
 The Mac `Library/Messages/Archive` folders also contained **2,153** `.ichat`
 file copies across selected 2020–2026 snapshots. A SHA-256 deduplicated local
 source copy retains **1,591** unique Apple keyed archives
@@ -1154,8 +1195,9 @@ A read-only `plistlib` pass decoded all 1,849 locally retained Apple keyed
 `.ichat` files from Blue Seagate and Black WD without parse errors. Their
 21,889 message objects contain 19,974 distinct GUIDs. Of these, 19,573
 already exist in the configured archive, 164 are absent there but present
-in the exclusion ledger, and 237 are in neither. All 237 have nonempty text
-in the keyed archive and none has an exact timestamp-and-body match to an
+in the exclusion ledger, and 237 are in neither. All 237 have a nonempty
+keyed string, though some contain only an attachment object marker, and none
+has an exact timestamp-and-body match to an
 archived message. Their years are 2014 (one), 2022 (113), 2023 (106), and
 2024 (17).
 
@@ -1184,6 +1226,85 @@ control messages. All control timestamps and 10 of 12 control bodies match
 the archive byte-for-byte. The file containing 12 candidates has a
 body mismatch in its sole archived control. Its text representation
 needs validation before a checked import of those candidates.
+
+### Retained `.ichat` GUID validation (2026-11-07)
+
+A second read-only pass validated the 237 unrepresented GUIDs against the
+configured archive and the retained keyed archives. The sender account and
+service identifiers for every candidate occur among archived GUID controls;
+control flags establish incoming or outgoing direction for 236. The remaining
+flag belongs to an attachment-only message and has no direction control.
+**119** candidates have five- or six-digit incoming sender identifiers and
+meet the owner's short-code exclusion. The other **118** do not match the
+configured blocked participants, archived STOP/QUIT participants, or the
+literal appointment-reminder rule. No Apple Unknown Senders designation was
+available in these files, so that exclusion cannot be verified here.
+
+Fifteen of the 118 have an attachment object marker. Seven include a file
+transfer GUID; none has a matching attachment observation in the configured
+archive, and the bytes have not been recovered. The earlier 14 apparent
+single-chat file matches do not establish 14 destinations: 13 point only to
+the synthetic `orphaned` conversation. The one named-chat match is the
+attachment-only message with the uncalibrated direction flag. Historical
+participant rosters also conflict with some in-file controls. Therefore no
+`.ichat` message or attachment was merged or marked excluded in this audit.
+The remaining 118 need an importer that preserves their source GUIDs and
+review status without inventing a chat, or independent historical chat
+evidence. The private metadata-only reports are under
+`reconstruction/2026-11-07-seagate/reports/ichat-*-validation.json` and
+`ichat-validation-metadata.json`.
+
+The separate read-only audit of 56 held legacy SMS variants found 56 distinct
+archived counterparts at the same second, normalized address, and direction
+(53 iMessage rows and three Nexus rows). Each source text becomes identical
+to its archived counterpart after removal of an optional leading multipart
+SMS marker and whitespace normalization. Fourteen contain that marker. The
+56 do not warrant new message rows. The private metadata-only result is
+`reconstruction/2026-11-07-seagate/reports/legacy-sms-variant-validation.json`.
+
+### Checked `.ichat` review import (2026-11-07)
+
+[`scripts/ichat_review_import.py`](../scripts/ichat_review_import.py) redecodes
+the two retained source directories, pins the 237-GUID validation roster and
+source/configuration digests, and checks Drew account identifiers against
+archived GUID controls. It staged the 118 owner-eligible records in an isolated
+SQLite copy before a checked merge into the configured archive. They use the
+existing `imessage` source and retain their original Apple GUIDs in the
+synthetic `iChat review (unassigned)` conversation. This makes them searchable
+and prevents a later TXT/HTML export from creating a second message card for
+the same GUID. The synthetic conversation is not a historical chat assignment;
+moving a record to a verified chat still requires a checked GUID-to-chat audit.
+
+The importer decoded two Apple `NSFileWrapper` payloads with the local Swift
+Foundation helper and retained their verified JPEG and PNG bytes under
+`media/imessage`. Seven file-transfer GUID observations are recorded; five
+lack retained bytes. Eight other attachment object markers do not expose a
+file-transfer GUID in these files. The 119 five- or six-digit sender GUIDs
+were added to `imessage_excluded_messages` with a short-code reason, so later
+exports cannot recreate them. No Apple Messages or iCloud data changed.
+
+The isolated run added 118 messages, two media references, seven attachment
+observations, and 119 exclusion GUIDs; a repeat added zero. A SQLite-only
+checkpoint at `archive-backups/ichat-review-premerge-20261107.sqlite` preceded
+the configured merge, which added the same rows and two content-addressed files
+(4,449,688 bytes). All 118 messages are FTS-indexed; SQLite integrity,
+foreign keys, SHA-256 checks of both files, and loopback conversation/media
+requests passed. Every preexisting checked table row matched the premerge
+checkpoint after the merge. A fresh configured plan proposes zero additions.
+The configured archive now has **73,588 messages**. This checkpoint does not
+protect media; a full archive backup and restore drill remain due.
+
+A later read-only destination audit found none of the 118 review GUIDs in 36
+usable copied Apple message databases, the active Mac Messages database, or
+5,258 retained exporter HTML files. The `.ichat` rosters and filenames do not
+resolve the chat because some contradict archived control GUIDs. No checked
+move was possible and the review conversation remains intact. The five
+transfer GUIDs without bytes matched no attachment metadata row in 37 copied
+databases; no exact-named source file was found in the local reconstruction
+workspace. A filename match to one existing archived attachment is only a
+candidate, not identity proof. These checks made no archive changes; private
+metadata-only reports are under
+`reconstruction/2026-11-07-seagate/reports/ichat-*-audit.json`.
 
 ### Reconstruction staging cleanup (2026-11-07)
 
@@ -1272,6 +1393,450 @@ removing 201,192,248 logical bytes; the source copies, private plans, permanent
 media, and two SQLite-only premerge checkpoints remain. Saved plans record
 what was checked but require a fresh isolated copy to run again.
 
+## Archive-wide transactional cleanup (2026-11-07)
+
+[`scripts/transactional_cleanup.py`](../scripts/transactional_cleanup.py)
+scanned all 73,466 then 73,200 locally archived messages without sending text
+to a service or putting it in the private plans. It selected strong code,
+appointment, survey, delivery, account, notice, marketing, and voting-spam
+templates in one-way conversations. Group conversations, substantive two-way
+personal exchanges, the owner-reviewed named-sender keep list, and outgoing
+messages in `orphaned` were protected. The second pass added narrower template
+variants and two remaining owner STOP/QUIT threads. Across the two passes,
+**321 messages** were initially removed: **311 iMessage** and **10 Nexus**. The plans
+recorded 32 attachment and 40 source-asset references on selected rows; their
+database references were removed with the messages, but no media bytes were
+deleted. This was an owner-directed exception to append-only retention.
+
+After Drew confirmed that personal conversations should be protected, the
+pre-cleanup checkpoint and removal plans were audited against sender labels
+and contact links. Tamar Asayan was the only person-shaped sender label among
+the removed rows. A checked transaction restored all **50** messages in that
+conversation with their original IDs and all **14** links, then removed their
+**100** exact-hash and TXT-fingerprint ledger entries. No other removed row
+had a named-person sender label in the available archive metadata. A check of
+archived contact identifiers and other retained conversations found no
+additional person-name match for the remaining excluded numeric handles.
+This does not prove that every numeric or email-only one-way sender is unknown
+to Drew; the Mac Contacts app was not consulted.
+The classifier now defers person-shaped sender labels for review even when a
+message resembles a reminder or code; the shape is a protection signal, not
+proof of identity. The net owner-directed removal is **271 messages: 261
+iMessage and 10 Nexus**.
+
+Before each deletion, the script made an approximately 50 MB SQLite-only
+checkpoint and rechecked exact IDs, hashes, Apple GUIDs, timestamps, body
+digests, and dependent rows. The remaining removed messages have **532**
+exclusion-ledger entries: one exact hash per removed message and a
+noncolliding `content-v1:` fallback for each removed iMessage. The paired
+Apple GUID remains the strongest
+reimport identity. Schema v29's insert trigger rejects excluded hashes from
+all sources and excluded Apple GUIDs, including import-only legacy paths.
+The second checkpoint was removed after verification; the first, taken before
+both passes, remains for recovery without occupying another 50 MB.
+At that checkpoint the archive had **73,195 messages**, **2,983 exclusion-ledger rows**,
+and **1,213 orphaned messages**. Post-cleanup SQLite integrity and foreign
+keys pass, FTS has exactly 73,195 rows, doctor reports schema v29 with zero
+problems, and the local browser responds. Synthetic tests cover classifier
+protections, checked removal, and the insertion guard. No real-source repeat
+import was run for these 271 remaining excluded identities; TXT-only text or date changes can
+still evade the fallback when no Apple GUID is available.
+
+A broader keyword audit found **267** additional one-way messages containing
+single words such as “code,” “account,” or “vote” that did not meet the strict
+rules. They were retained because those words alone do not establish a
+transactional message. The classifier runs on demand over the current archive;
+future unseen transactions are not automatically filtered on ingest. The
+source staging files, Apple Messages, and iCloud were untouched. Private
+identity-only plans and checkpoints are under the configured Messages folder.
+
+### Current archive completeness audit (2026-11-07)
+
+A read-only SHA-256 check of every file referenced by `attachments` and
+`imessage_source_assets` found **7,765 distinct files** totaling
+**10,959,636,016 bytes**. All paths were valid archive paths; none was missing,
+symlinked, or hash-mismatched. This checks retained files, not source assets
+that never reached permanent storage. Of **14,652** distinct attachment GUIDs
+observed from iMessage sources, **13,593** have retained bytes and **1,059**
+do not (**597** with visible observations; **462** hidden). Among the 1,059,
+the locally copied source databases record a path for **900** whose file is
+absent at that direct path, no path for **132**, and no matching observation
+for **27**. Retained backup file indexes and unmounted source drives may still
+contain recoverable bytes; the direct-path check cannot rule them out.
+
+Across 47 locally copied Apple message databases, 46 were readable and 40
+provided modern message GUIDs. Their union contains **71,400** GUIDs:
+**64,444** in the configured archive, **2,511** in the exclusion ledger, and
+**4,445** in neither at the 2026-11-07 audit. The latter are not a
+missing-message count. Metadata
+triage found **2,926** associated records, **444** nonzero item types,
+**962** chat-linked content candidates (including **865** short-code sender
+records), **90** unlinked short-code content candidates, and **23** without
+text or attachment. The remaining **97** chat-linked candidates were not
+flagged by the initial source-sender short-code test. **95** occur in 27 chats
+in a retained January 2026 Mac database. None matches an archived message by
+exact text, direction, and timestamp within a minute; 93 have no
+same-direction archive row within a minute. A source-chat audit found that
+**94** are in 26 chats where Drew sent a standalone `STOP` or `QUIT`; the
+last has a five-digit chat identifier. All 95 meet existing owner exclusions
+and remain unimported. On 2026-11-08, their GUIDs were added to the exclusion
+ledger so a partial export need not contain the opt-out reply. The other
+**two** GUIDs occur in older iPhone backups
+under one eight-digit source identifier. They have identical text two seconds
+apart, no nearby archived row, and no strict transactional classifier match.
+Their source address already has a whole-conversation owner block; both GUIDs
+were added to the exclusion ledger without importing a message. The source
+union now has **2,608** GUIDs in the ledger and **4,348** in neither the archive
+nor ledger; these remaining metadata classes are not 4,348 eligible messages.
+Raw `chat.is_filtered` values are not treated as proof of Apple's Unknown
+Senders classification.
+
+The **267** ambiguous transactional candidates at that audit were grouped into
+**199** sender groups without exposing bodies. A direct macOS Contacts request
+was unavailable to this process. Drew supplied a local 2,735-card vCard on
+2026-11-08; exact phone/email matching found one contact match among the 271
+previously removed messages and 11 matches to four contact labels among the
+267 retained ambiguous messages. Three of the retained matched rows have
+person-shaped contact labels and eight share a dental-office label. No
+January source-candidate chat or either older iPhone candidate matched a
+vCard identifier. These checks do not establish Apple Unknown Senders status;
+absence from the vCard is not proof of spam. No additional message was
+deleted or imported in this audit. Private metadata-only reports are in
+`reconstruction/2026-11-07-seagate/reports`, including
+`transactional-ambiguous-sender-review-20261107.md`,
+`local-vcard-contact-crosscheck-20261108.md`,
+`current-archive-full-media-audit-20261107.json`,
+`current-missing-attachment-source-audit-20261107.json`,
+`current-source-guid-union-audit-20261107.json`,
+`current-unrepresented-guid-triage-20261107.json`, and
+`source-gap-cross-guid-overlap-20261107.json`. The exclusion and older iPhone
+checks are `source-gap-exclusion-metadata-20261107.json` and
+`source-gap-older-iphone-review-20261107.json`.
+
+### Owner contact cleanup and exact assignments (2026-11-08)
+
+Drew approved removal of the dental-office conversation matched by the vCard.
+It held **18** incoming Nexus SMS records, including the eight ambiguous
+review matches, and no outgoing messages, attachment references, links, or
+other dependent records. A checked SQLite-only transaction added the 18 exact
+source hashes to the owner-exclusion ledger, removed the messages and the
+empty conversation, and retained every media file. The configured exact
+conversation exclusions now cover its phone identifier and contact-name
+export label. The same transaction entered the **97** source-only Apple GUIDs
+described above into the ledger. A local isolated check and the configured
+transaction passed integrity, foreign keys, FTS row counts, and attempted
+reinsertions by Nexus hash and Apple GUID. The archive now contains **73,177
+messages**, **2,209 conversations**, and **3,098 exclusion-ledger entries**.
+
+The other three vCard matches are personal contacts. An exact-identifier,
+metadata-only transaction linked their seven one-to-one conversations and
+**187** existing messages to three contact records. It created one contact,
+added four source-specific identifiers, and changed no message or media row.
+The local browser displays the matched contact names; the removed dental
+conversation returns 404. Private identity-only plans and two approximately
+50 MB SQLite-only checkpoints are under the configured Messages folder. They
+are not full media backups.
+
+### July 2024 backup attachment recovery (2026-11-08)
+
+A read-only index audit of a Drew-owned July 2024 iPhone backup on the
+`drew_wilkins` network share found **164** files whose exact attachment GUIDs
+were among the 1,059 then missing from the archive. Its `sms.db` is
+byte-identical to the retained local 2024 source copy. The 164 backup files
+total **124,870,938 bytes**, with matching `MediaDomain` manifest entries.
+Their attachment rows have no message join in that backup, so the ordinary
+`imessage-source-assets` pass cannot link them. Each GUID had exactly one
+existing archive observation, with a matching hidden flag. File IDs, sizes,
+and SHA-256 digests were checked before linking the bytes to those already
+archived messages. This is an exact GUID association, not a name or time
+guess.
+
+An isolated import added 164 source assets, including 98 hidden payloads and
+66 visible assets, and 57 new gallery entries. Repeating it added zero. The
+same checked import into the configured archive retained **123 distinct
+content-addressed files** totaling **102,742,359 bytes**; identical content
+was shared across attachment GUIDs. SQLite integrity, foreign keys, all 164
+archive mappings, and every new file hash passed. Message and conversation
+counts stayed at **73,177** and **2,209**. The archive now has **13,757** of
+14,652 observed attachment GUIDs with bytes and **895** without (**531**
+visible; **364** hidden). The older full retained-media audit above preceded
+this import; the 123 new files were verified separately. Disposable local
+source and trial copies were removed after the merge. Private audit and
+checked-merge reports are in `reconstruction/2026-11-07-seagate/reports`.
+A read-only check of the October 2026 iPhone backup on the same share found
+no present files for the 895 remaining GUIDs, although 644 GUIDs appeared
+in its Messages database. Missing paths and manifest entries in that backup
+do not rule out recovery from other sources.
+
+### Owner removal of ambiguous one-way messages (2026-11-08)
+
+Drew selected the previously reviewed ambiguous one-way set for removal. Eight
+of its 267 rows had already been deleted with the dental-office conversation.
+Three were subsequently linked by exact vCard identifiers to personal
+contacts; those remain protected under Drew's earlier instruction to preserve
+personal conversations. The other **256** rows occupied non-group,
+one-way conversations with no person-shaped contact label. A checked isolated
+pass and the configured pass removed exactly those 256 message IDs and 170
+conversation shells that became empty. No surviving message ID, body, hash,
+or conversation assignment changed.
+
+Before deletion, the transaction added **256** exact hashes and **222**
+distinct conversation-independent `content-v1:` fingerprints to the
+exclusion ledger; **188** deleted iMessages had Apple GUIDs. The 35 deleted
+iMessages without GUIDs have exact-hash and TXT-fingerprint protection, but
+a later export with a changed body or timestamp could bypass those fallbacks.
+The 10 attachment rows, 13 retained-source-asset rows, 24 observations, and
+46 link rows attached to deleted messages were removed by referential
+cascade; their underlying media files were not deleted. The configured
+archive now has **72,921 messages**, **2,039 conversations**, and **3,576**
+ledger entries. SQLite integrity, foreign keys, FTS equality, unchanged
+survivors, preserved personal matches, and attempted hash/GUID reinsertions
+passed. A roughly 50 MB SQLite-only checkpoint and a private identity-only
+plan are under `/Users/drew_wilkins/Documents/Messages`. This was an explicit
+owner-directed exception to append-only message retention; it does not
+classify future unseen messages.
+
+The removed attachment observations reduce the current catalog to **14,628**
+distinct GUIDs: **13,744** have retained bytes and **884** do not (**520**
+visible; **364** hidden). This is a change in the set of archived messages,
+not recovery of 11 more attachment files.
+
+### Current Apple filter comparison (2026-11-08)
+
+Drew supplied screenshots of the iPhone's Unknown Senders, Transactions,
+Promotions, and Spam lists. A read-only, exact-GUID comparison with the Mac's
+live Messages database identified one archived Spam example from the
+screenshot. A checked transaction entered its Apple GUID, archive hash, and
+`content-v1` fingerprint in the exclusion ledger, then removed that one
+message and its empty conversation. Four then-unarchived GUIDs were also
+entered as import guards. A roughly 50 MB SQLite-only checkpoint preceded
+the change; media files were untouched. Integrity, foreign keys, FTS counts,
+and the retained personal messages passed the post-change check.
+
+The first source scan used SQLite `immutable=1`, which ignored the active
+Messages write-ahead log. A corrected read-only scan including that log found
+**692** currently filtered Apple GUIDs: **685** already in the exclusion
+ledger and **seven** archived under Tamar Asayan. The removed Spam message
+remains marked filtered in that live scan. One of the four new GUID guards
+was visible only in the earlier database image and is absent from the live
+scan. These private Mac filter values do not establish a complete or stable
+mapping to the iPhone's four named categories. No iPhone was connected or
+backed up for this comparison.
+
+The Tamar archive conversation has **50** messages. Exact Apple GUIDs and
+retained source copies identify **15** from `+15512665526`, whose text
+explicitly identifies CarePlus, and **35** from `+13142607118` or its
+`(smsft)` variant. The latter are appointment reminders but do not identify
+CarePlus by name. Drew plans to separate the CarePlus number into its own
+contact. All 50 remain archived pending that split; any later removal must
+target the verified number's message identities, not the mixed conversation.
+The configured archive has **72,920 messages**, **2,038 conversations**, and
+**3,582** exclusion-ledger entries after the one Spam removal.
+
+Future paired imports can now compare every HTML-paired GUID with the matching
+read-only Apple source database before attachment retention. The owner-verified
+`chat.is_filtered` values **1, 2, 3, 4, and 52** suppress new messages and
+write durable GUID guards. Unreviewed nonzero values hold new GUIDs for review;
+already archived rows remain intact, including the Tamar messages with value
+68. A historical source without this optional column has no native category
+evidence and continues through the separate TXT exclusion rules. The configured
+archive enables `imessage_exclude_apple_filters`, so TXT-only import paths fail
+closed; `scripts/imessage-reconstruct` supplies the paired HTML and source DB.
+This does not delete existing messages or prove that Mac's private values cover
+every iPhone filter category or every historical snapshot.
+
+### Owner removal of two sender numbers (2026-11-08)
+
+Drew explicitly selected `+15512665526` and `+13142607118` for removal.
+Exact Apple GUID-to-handle checks across the live Mac database and retained
+source copies accounted for all **50** messages in their mixed archive
+conversation: **15** from the first number and **35** from the second. None
+had an attachment or source-asset record; **14** link rows were attached.
+An isolated trial and a checked configured transaction recorded all 50 Apple
+GUIDs, exact hashes, and noncolliding `content-v1` fingerprints before removing
+the 50 messages, 14 links, and empty conversation. Two additional live-source
+GUIDs absent from the archive were guarded: one from the second number and
+one currently marked `is_filtered=4`. A roughly 50 MB SQLite-only checkpoint
+is at `archive-backups/two-phone-filter-predelete-20261108.sqlite` under the
+Messages folder. All 52 checked GUID reinsertion attempts were rejected in
+the trial. Survivor digest, FTS count, SQLite integrity, and foreign keys
+passed. No permanent media files were deleted. The configured archive now has
+**72,870 messages**, **2,037 conversations**, and **3,684** exclusion entries.
+
+No archived GUID in the *live* Mac Messages database currently has
+`chat.is_filtered` value 1, 2, 3, or 4. A scan of retained older database
+copies found **4,299** archived GUIDs that had value 1 in at least one older
+snapshot, but **3,940** of those also had value 0 in another source. The older
+value alone is not reliable evidence for deleting historical personal
+conversations, so no additional archived rows were removed on that basis.
+The live value-1-to-4 GUIDs are now ledgered. Future paired imports also
+exclude exact sender handles for the two selected numbers, independent of
+exporter contact-name changes; the private configured list stores those
+numbers, while the repository's example config uses placeholders.
+
+### iPhone backup filter comparison (2026-11-08)
+
+A read-only check of the mounted iPhone backup dated **October 19, 2026**
+found `chat.is_filtered` but no `message.filter_action` or
+`message.filter_sub_action` columns. Its nonzero chat values were 1, 2, 3, 4,
+36, 52, and 68. The values are chat-level integers, not named iPhone filter
+categories. The backup predates Drew's November 8 screenshots, so it cannot
+establish the phone's current filtered list. The live Mac likewise has only
+`chat.is_filtered`, with no message-level filter columns.
+
+Six still-archived Apple GUIDs had values 1 or 2 in that iPhone backup: one
+value-1 message in one conversation and five value-2 messages in another.
+Neither conversation had an outgoing message or a named contact in the
+archive, and all six GUIDs were absent from the live Mac database. Under
+Drew's instruction to remove values 1–4, a checked transaction recorded each
+GUID, exact hash, and noncolliding `content-v1` fingerprint in the exclusion
+ledger before deleting the six rows and the two empty conversations. One
+attachment reference and one source-asset record cascaded with its message;
+no permanent media bytes were deleted. The SQLite-only checkpoint is
+`archive-backups/iphone-filter-predelete-20261108.sqlite`. Message, FTS,
+foreign-key, and integrity checks passed. The configured archive now has
+**72,864 messages**, **2,035 conversations**, and **3,696** exclusion entries.
+
+Across 45 local reconstruction Apple database copies, no readable `message`
+table had a filter-named column; one copy could not be read. Historical Mac
+value 1 remains contradictory across snapshots, so the 4,299 older archived
+GUIDs flagged in at least one source were not removed on that basis. The
+October iPhone backup is a dated observation, not a way to enumerate every
+message in the phone's present-day Unknown Senders, Transactions, Promotions,
+or Spam lists.
+
+### Mirrored iPhone sender-list cleanup (2026-11-08)
+
+The owner authorized scanning the four current iPhone filter lists through
+iPhone Mirroring, without connecting, backing up, opening, or changing phone
+messages. Local screenshots and OCR recorded 334 distinct label strings, of
+which 306 looked numeric. These are OCR labels, not a verified count of phone
+conversations: four sender keys appeared in multiple folders, and two truncated
+group titles hid additional participants. Normalization yielded 298 distinct,
+fully readable numeric senders and ten complete email senders. The owner
+provided four exact numbers for the two truncated group titles and directed us
+to ignore the other participants there. The private exact sender list contains
+those captured and owner-supplied handles plus two previously blocked numbers;
+it now has **314** distinct entries. It is stored only in the private config.
+
+An exact-address comparison of surviving archive message senders and one-to-one
+conversation handles found four messages from one Promotions sender, a
+15-message Transactions conversation (13 incoming and two outgoing), and one
+incoming message in a group from an Unknown Senders number. There were no
+surviving Spam-number matches. The owner clarified that all of these identified
+filter-list matches should be removed, including the two-way Transactions
+conversation. Two checked SQLite-only checkpoints preceded separate deletions
+of the four Promotions rows and the remaining 16 rows. The second checkpoint
+was removed after verification; the first 50 MB checkpoint remains. Each removed Apple GUID,
+archive hash, and noncolliding `content-v1:` fingerprint was recorded in the
+exclusion ledger first. No selected row had an attachment or link. One emptied
+Transactions conversation and five other empty exact-sender conversation shells
+were removed; unrelated messages in the group remained. A disposable database
+copy rejected reinsertion of a removed GUID. The configured archive now has
+**72,844 messages**, **2,029 conversations**, and **3,736 exclusion-ledger
+entries**. SQLite integrity and foreign-key checks passed, and an exact scan of
+current message senders and one-to-one conversation handles found **zero**
+remaining matches to the 314 private exact sender entries. No permanent media
+bytes were deleted.
+
+The paired importer now accepts exact international phone, short-code, and
+email source handles in that private list, in addition to US phones. It blocks
+matching source GUIDs before media retention and records GUID guards. Existing
+removed rows have GUID/hash/fingerprint guards even if a later export changes
+its conversation label. This does not establish the iPhone's actual message
+count per filter folder, resolve OCR labels that were not fully readable, or
+prove that every historical Apple source retained the same filter category.
+Apple's current phone-only category is not transmitted by a normal TXT export;
+the verified `chat.is_filtered` values remain a separate paired-source rule.
+
+### Outgoing one-word `orphaned` cleanup (2026-11-08)
+
+Drew directed removal of outgoing `orphaned` messages whose entire text is
+`stop` or `remove`, ignoring case and surrounding spaces. The checked set had
+**16** messages, all `stop` and none `remove`. All 16 had Apple GUIDs and no
+attachment, link, source-asset, or attachment-observation rows. A 50 MB
+SQLite-only checkpoint and private identity-only plan preceded one transaction
+that recorded each GUID, exact archive hash, and noncolliding `content-v1:`
+fingerprint before deleting the row. No other `orphaned` message was changed.
+The archive now has **72,828 messages**, including **1,197 in `orphaned`**,
+and **3,768 exclusion-ledger entries**. SQLite integrity, foreign keys, FTS
+row equality, and a disposable reinsertion attempt passed; the removed GUID
+was rejected. No permanent media bytes were deleted. A changed TXT time or
+body can evade the fingerprint fallback, so future historical imports must
+remain GUID-paired.
+
+### Owner-directed unsubscribe cleanup (2026-11-08)
+
+An exact-word archive audit found 11 messages containing `unsubscribe` or
+`unsubscribed` in 11 conversations. Three were unsubscribe confirmations; two
+had an identifiable preceding owner reply and a preceding incoming message in
+the same short thread. Drew directed removal of the matching messages and the
+owner replies that triggered the confirmations. A checked SQLite-only
+checkpoint and private identity-only plan preceded removal of 15 messages
+and six conversations that became empty. A matching message in a large named
+personal conversation was removed without deleting the conversation or its
+other messages. The mixed `orphaned` conversation was untouched.
+
+The transaction recorded 14 Apple GUIDs, all 15 exact message hashes, and 14
+noncolliding `content-v1:` TXT fingerprints in the exclusion ledger before
+deleting the rows. One link row cascaded; no attachment, native source-asset,
+or attachment-observation rows were affected, and no permanent media bytes
+were deleted. A comparison with the SQLite checkpoint found every surviving
+message row unchanged. SQLite integrity, foreign keys, FTS row count, and
+disposable rejected-reinsertion checks passed. The archive now has **72,813
+messages**, **2,023 conversations**, **1,197 orphaned messages**, and **3,797
+exclusion-ledger entries**. The removed identities are guarded on reimport;
+a new message or changed TXT time/body needs a fresh classification pass.
+
+### Network Mac missing-attachment recovery (2026-11-08)
+
+Before considering deletion from active Apple Messages, a consistent,
+read-only copy of the live Mac `chat.db` was checked against the then-missing
+attachment GUIDs. None of its 884 cataloged missing GUIDs had a present file:
+604 had no path, 17 pointed to absent files, and 263 were not in that
+database. A second read-only copy from the mounted `drew_wilkins` Mac share
+had **521** of those exact GUIDs with files present in its Messages attachment
+tree. All 521 linked to archived Apple message GUIDs; one attachment linked
+to two messages. Their hidden flags agreed with the existing observations.
+
+A temporary metadata-only database limited the standard
+`imessage-source-assets` command to those 521 source attachment rows. Its dry
+run found all 522 message-to-attachment links available. The configured
+archive import added 522 source-asset links and 291 visible gallery entries,
+retaining **459 distinct permanent files totaling 700,362,021 bytes**. Every
+retained path exists and its bytes match the SHA-256 filename. The archive
+still has **72,813 messages**; SQLite integrity and foreign keys passed. The
+catalog currently contains **14,627 attachment GUIDs**: **14,264 with retained
+bytes** and **363 without** (**220 visible**, **143 hidden**). The one-GUID
+catalog reduction since the earlier 14,628 figure came from an owner-directed
+message removal, separate from this recovery.
+
+For the remaining 363, the live Mac database has 145 without a path, 17 with
+an absent file, and 201 not present. The network Mac database has 58 without
+a path, two with an absent file, and 303 not present. An earlier audit of 47
+local database copies found 97 with no source path, 239 whose recorded file
+was unavailable, and 27 not observed. These classifications overlap across
+sources. **331** of the 363 belong only to archived messages older than one
+year as of November 8, 2026; 149 of those 331 still have an attachment row
+in the live Mac database, but no local file. The locally retained April 2022
+iPhone backup has no present file
+for the remaining GUIDs; the mounted July 2024 and October 2026 iPhone
+backups were already checked against the larger pre-recovery gap. The missing
+bytes remain unproven, so active Apple Messages/iCloud deletion is not yet
+safe on attachment-completeness grounds. No current-state full backup and
+restore drill has been completed.
+
+A targeted check of the **68** remaining GUIDs dated 2025–2026 found 34
+visible attachments and 34 hidden payloads. The October 18, 2026 iPhone
+backup has no matching file: 47 GUIDs are absent from its attachment table,
+20 refer to transient `~/tmp/` paths without backed-up files, and one has no
+path. The live Mac likewise has no file; 50 GUIDs are absent from its
+attachment table, 17 point to absent files, and one has no path. Of the 34
+visible attachments, 33 are absent from the live Mac table. Four live rows
+have an iCloud record identifier, but that metadata does not establish that
+iCloud still has the bytes. A private metadata-only audit records the exact
+GUIDs and statuses.
+
 ## Implementation status
 
 “Tested (synthetic)” means regression tests use fabricated exports and media.
@@ -1286,16 +1851,16 @@ transport for part of the first sample.
 | Unchanged-export skip | Content hash; `--full` reparses and rechecks media | Keep safe optimization | Tested (limited real sample) |
 | Independent repeat export | Fresh export matched original paths and bytes; forced reimport added zero messages | Avoid duplicates across export cycles | Tested (limited real sample; same exporter version and date window) |
 | Append-only messages | TXT-only imports use content hashes; paired imports reuse Apple GUIDs and never delete omitted messages | Preserve existing content | Tested (seven-source isolated reconstruction) |
-| Conversation identity | First observed export filename labels a message; explicit source-metadata recovery moved 13,486 orphaned GUIDs to verified Apple chats without changing message IDs or media | Reconcile the remaining 1,335 orphaned records and split threads across snapshots | Partial |
+| Conversation identity | First observed export filename labels a message; explicit source-metadata recovery moved 13,486 orphaned GUIDs to verified Apple chats without changing message IDs or media | Reconcile the remaining 1,197 orphaned records and split threads across snapshots | Partial |
 | Apple message GUID | Paired exporter 5.0.1 HTML supplies GUIDs; nullable unique `source_guid` persists them | Preserve identity across overlapping snapshots | Tested (seven-source isolated reconstruction; equal-date ties remain) |
-| Independent attachment retention | TXT and native source scans copy bytes to `<data_dir>/media/imessage` with SHA-256 names; later snapshots can fill gaps by attachment GUID | Preserve every available byte variant and report unavailable GUIDs | Tested (13,631 available attachment GUIDs retained; 1,071 unavailable after Black WD) |
+| Independent attachment retention | TXT and native source scans copy bytes to `<data_dir>/media/imessage` with SHA-256 names; later snapshots can fill gaps by attachment GUID | Preserve every available byte variant and report unavailable GUIDs | Tested (14,264 attachment GUIDs with retained bytes; 363 without in the current archive) |
 | HEIC browser previews | `imessage-import` runs the existing local converter; `msgbrowse media` rebuilds JPEG cache after restore | Show HEIC images in gallery and transcript while retaining originals | Tested (limited real sample; four local HEIC files) |
 | URL preview retention | Optional read-only source scan copies uniquely matched URL balloon images to permanent media; transcript hides raw URL text and displays the local card image | Preserve link thumbnails independently of Apple-owned caches | Tested (limited real sample; full-history coverage unverified) |
 | Providers refresh | Preserves legacy references before replacing managed export; append import retains existing rows | Preserve existing media and content | Tested (synthetic) |
 | Providers Disable | No iMessage control; request and store deletion guard reject it | Prevent iMessage archive loss | Tested (synthetic) |
 | DB backup | New snapshots include DB, config, and retained media checksums | Back up DB plus permanent media | Tested (seven-source isolated archive, separate restore) |
 | Offline browsing | Local UI/search with existing DB and media | Browse without exporter or source data | Tested (restored seven-source archive over loopback without exporter; source deletion only in limited sample) |
-| Real-history completeness | The current archive has 73,470 messages after checked Nexus, Nexus recovery, legacy MMS, legacy SMS/MMS review recovery, and Apple-pair deduplication; their 275, 3, 73, and four new media files passed SHA-256 checks, while the last full permanent-iMessage-file check covered the earlier Blue Seagate state | Reconcile missing bytes, close text variants, uncertain legacy group rows, encrypted backups, and source omissions before iCloud deletion | Partial |
+| Real-history completeness | The current archive has 72,813 messages after checked historical imports and owner-directed exclusions; the preceding 7,765-file audit and the 123 newly retained files passed hash checks, while 884 observed attachment GUIDs still lack bytes | Reconcile missing bytes, uncertain historical chats, encrypted backups, and source omissions before iCloud deletion | Partial |
 
 ## Architecture decision log
 

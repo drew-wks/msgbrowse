@@ -27,6 +27,15 @@
            renders can skip the sidebar listing (REQ-0008-006). */}}
       {{template "hud" .ArchiveHUD}}
 
+      {{if and .Orphaned .Orphaned.Messages}}
+      <div class="home-card" id="orphaned-summary">
+        <div class="home-card-label">Orphaned iMessages</div>
+        <p><strong>{{num .Orphaned.Messages}} messages</strong> still need a verified conversation.</p>
+        <p class="status-note">{{num .Orphaned.NamedMessages}} from {{num .Orphaned.NamedSenders}} named senders · {{num .Orphaned.OwnerMessages}} sent by you</p>
+        <div class="home-card-actions"><a href="/c/{{.Orphaned.ConversationID}}" class="home-card-action">View orphaned messages →</a></div>
+      </div>
+      {{end}}
+
       {{/* Reading-room cards (#239, design brief §Home): "On this day" beside
            "Jump back in", between the stat strip and the quick links. This is
            the first screenful now — the diagnostics below are subordinate to it.

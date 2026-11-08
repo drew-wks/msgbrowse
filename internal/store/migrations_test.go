@@ -368,3 +368,42 @@ func TestMigrateFreshDBStampsLatest(t *testing.T) {
 		t.Errorf("fresh DB user_version = %d, want %d", v, schemaVersion)
 	}
 }
+
+// TestOwnerExclusionTriggerRejectsReimport checks that every importer, not just
+// the normal iMessage importer, honors an exact owner-deleted identity.
+func TestOwnerExclusionTriggerRejectsReimport(t *testing.T) {
+	st := newTestStore(t)
+	db := st.DB()
+	if _, err := db.Exec(`INSERT INTO conversations(source,name) VALUES('imessage','Test')`); err != nil {
+		t.Fatal(err)
+	}
+	var conversationID int64
+	if err := db.QueryRow(`SELECT id FROM conversations WHERE source='imessage' AND name='Test'`).Scan(&conversationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO imessage_excluded_messages(source_guid,message_hash,reason,excluded_at)
+		VALUES('removed-guid','removed-hash','owner_transactional','2026-11-07')`); err != nil {
+		t.Fatal(err)
+	}
+	insert := `INSERT INTO messages(hash,conversation_id,source,source_guid,ts,ts_unix,sender,body)
+		VALUES(?,?,?,?,'2026-11-07',1,'Sender','Text')`
+	for _, test := range []struct {
+		name, hash, source, guid string
+		blocked                  bool
+	}{
+		{"same hash, iMessage", "removed-hash", "imessage", "", true},
+		{"same GUID, changed hash", "changed-hash", "imessage", "removed-guid", true},
+		{"same hash, Nexus", "removed-hash", "nexus", "", true},
+		{"unrelated message", "new-hash", "nexus", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := db.Exec(insert, test.hash, conversationID, test.source, test.guid)
+			if test.blocked && err == nil {
+				t.Fatal("owner-excluded message was reimported")
+			}
+			if !test.blocked && err != nil {
+				t.Fatalf("unrelated message was rejected: %v", err)
+			}
+		})
+	}
+}

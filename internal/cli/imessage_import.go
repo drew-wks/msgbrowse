@@ -38,6 +38,10 @@ func newIMessageImportCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			appleFilterDB, err := cmd.Flags().GetString("apple-filter-db")
+			if err != nil {
+				return err
+			}
 			preview, err := cmd.Flags().GetBool("preview-exclusions")
 			if err != nil {
 				return err
@@ -97,9 +101,12 @@ func newIMessageImportCommand() *cobra.Command {
 			defer st.Close()
 
 			run, err := imessage.Run(cmd.Context(), st, imessage.Options{
-				ArchiveRoot:  cfg.IMessageArchiveRoot,
-				GUIDHTMLRoot: guidHTMLRoot,
-				Full:         full,
+				ArchiveRoot:          cfg.IMessageArchiveRoot,
+				GUIDHTMLRoot:         guidHTMLRoot,
+				AppleFilterDB:        appleFilterDB,
+				RequireAppleFilter:   cfg.IMessageExcludeAppleFilters,
+				ExcludedAppleSenders: cfg.IMessageExcludedAppleSenders,
+				Full:                 full,
 				Exclusions: imessage.ExclusionPolicy{ShortCodes: cfg.IMessageExcludeShortCodes,
 					FilteredSMS:          cfg.IMessageExcludeFilteredSMS,
 					AppointmentReminders: cfg.IMessageExcludeAppointmentReminders,
@@ -135,6 +142,7 @@ func newIMessageImportCommand() *cobra.Command {
 	}
 	cmd.Flags().Bool("full", false, "ignore incremental state and re-scan every conversation")
 	cmd.Flags().String("guid-html-root", "", "matching imessage-exporter 5.0.1 HTML export from the same database snapshot")
+	cmd.Flags().String("apple-filter-db", "", "read-only Apple Messages database that produced the paired TXT and HTML exports")
 	cmd.Flags().Bool("preview-exclusions", false, "count exclusion matches without writing to the archive")
 	return cmd
 }

@@ -20,7 +20,7 @@
   <script src="/static/theme.js"></script>
   <script src="/static/sidebar-toggle.js" defer></script>
   <script src="/static/sidebar-resize.js?v=1" defer></script>
-  <script src="/static/sidebar.js" defer></script>
+  <script src="/static/sidebar.js?v=2" defer></script>
   <script src="/static/shell.js" defer></script>
   <script src="/static/copy.js" defer></script>
   <script src="/static/setup.js" defer></script>
@@ -157,6 +157,10 @@
           <span class="opacity-50 inline-flex">{{template "icon-search" .}}</span>
           <input type="search" id="sidebar-filter" class="grow bg-transparent outline-none text-sm" placeholder="Filter conversations" autocomplete="off" aria-label="Filter conversations" aria-controls="sidebar-conversations">
         </label>
+        <div class="sidebar-date-filters" role="group" aria-label="Filter conversations by latest message date">
+          <label>From <input type="date" id="sidebar-date-from" value="2000-01-01" aria-controls="sidebar-conversations" title="Latest message on or after this date"></label>
+          <label>To <input type="date" id="sidebar-date-to" aria-controls="sidebar-conversations" title="Latest message on or before this date"></label>
+        </div>
       </div>
       {{/* PINNED section (REQ-0006-010): pinned conversations float above the
            CONVERSATIONS list, using the SAME row markup. The wrapper (section

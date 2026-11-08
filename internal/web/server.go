@@ -51,6 +51,7 @@ type Store interface {
 	ListConversations(ctx context.Context) ([]store.ConversationSummary, error)
 	ConversationRefs(ctx context.Context) ([]store.ConversationRef, error)
 	ArchiveStats(ctx context.Context) (store.ArchiveStats, error)
+	IMessageOrphanedSummary(ctx context.Context) (*store.OrphanedSummary, error)
 	NewestMessageTS(ctx context.Context) (string, error)
 	GetConversationByID(ctx context.Context, id int64) (*store.ConversationSummary, error)
 	ConversationSourceName(ctx context.Context, id int64) (source, name string, err error)

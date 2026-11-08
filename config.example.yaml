@@ -14,6 +14,15 @@ archive_root: "~/Managed Files/Signal-Archive"
 # you don't import iMessage. Targets imessage-exporter 4.2.0 txt output.
 imessage_archive_root: "~/Managed Files/iMessage-Archive"
 
+# Require paired TXT/HTML and the matching read-only Apple database for import.
+# Exact screenshot-verified chat.is_filtered values are excluded by GUID.
+# Ordinary TXT-only import, sync, and Providers refresh fail closed when enabled.
+# Use scripts/imessage-reconstruct with a consistent source snapshot.
+imessage_exclude_apple_filters: false
+# Exact phone, short-code, and email sender handles to exclude in paired imports, independent of
+# exporter contact names. Requires the same paired source database.
+# imessage_excluded_apple_senders: ["+15555550101", "12345", "example@example.com"]
+
 # Path to the read-only WhatsApp-Chat-Exporter output directory (used by
 # `whatsapp-import`) — the folder containing result.json plus the media folders
 # the tool copied. Leave empty if you don't import WhatsApp.

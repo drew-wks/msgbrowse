@@ -136,13 +136,26 @@ func filterLedgerExcluded(msgs []signal.Message, ledger store.IMessageExclusionL
 				excluded++
 				continue
 			}
-		} else if _, found := ledger.Hashes[msg.HashWithSource(source.IMessage)]; found {
-			excluded++
-			continue
+		} else {
+			if _, found := ledger.Hashes[msg.HashWithSource(source.IMessage)]; found {
+				excluded++
+				continue
+			}
+			if _, found := ledger.ContentFingerprints[contentExclusionFingerprint(msg)]; found {
+				excluded++
+				continue
+			}
 		}
 		kept = append(kept, *msg)
 	}
 	return kept, excluded
+}
+
+// contentExclusionFingerprint identifies owner-deleted TXT content across
+// changed conversation and sender labels. Apple GUIDs remain authoritative.
+func contentExclusionFingerprint(msg *signal.Message) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s", msg.Timestamp.Unix(), msg.Body)))
+	return hex.EncodeToString(sum[:])
 }
 
 // PreviewExclusions parses each TXT export without writing to the database,

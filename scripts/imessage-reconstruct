@@ -108,8 +108,18 @@ export_one html disabled "$html_dir" "$workspace/reports/$label-html-export.log"
 
 make -C "$repo_dir" build > "$workspace/reports/$label-build.log" 2>&1
 import_log=$workspace/reports/$label-import.log
+if [[ $platform == iOS ]]; then
+  filter_db=$source_path/3d/3d0d7e5fb2ce288813306e4d4636395e047a3d28
+else
+  filter_db=$source_path
+fi
+if [[ ! -f $filter_db ]]; then
+  echo 'Messages database for Apple filter check is missing' >&2
+  exit 2
+fi
 if ! "$repo_dir/bin/msgbrowse" imessage-import --config "$config" --data-dir "$data_dir" \
-  --imessage-archive-root "$txt_dir" --guid-html-root "$html_dir" --full \
+  --imessage-archive-root "$txt_dir" --guid-html-root "$html_dir" \
+  --apple-filter-db "$filter_db" --full \
   --log-level error > "$import_log" 2>&1; then
   echo "Import failed; inspect the private log: $import_log" >&2
   exit 1

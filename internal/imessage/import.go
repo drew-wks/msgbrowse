@@ -31,6 +31,13 @@ type Options struct {
 	// GUIDHTMLRoot is a matching imessage-exporter 5.0.1 HTML export from
 	// the same database snapshot. It supplies stable Apple message GUIDs.
 	GUIDHTMLRoot string
+	// AppleFilterDB is the read-only Messages database that produced the paired
+	// TXT/HTML exports. Its chat filter values are matched by Apple GUID.
+	AppleFilterDB string
+	// RequireAppleFilter refuses TXT-only imports when configured for this archive.
+	RequireAppleFilter bool
+	// ExcludedAppleSenders are exact phone, short-code, or email handles blocked by the owner.
+	ExcludedAppleSenders []string
 	// Exclusions are applied before attachment retention and SQLite insertion.
 	Exclusions ExclusionPolicy
 	// Full forces every conversation to be re-parsed, ignoring incremental state.
@@ -38,8 +45,10 @@ type Options struct {
 	// Now supplies the current time; defaults to time.Now.
 	Now func() time.Time
 	// Logger receives progress; defaults to slog.Default().
-	Logger *slog.Logger
-	ledger store.IMessageExclusionLedger
+	Logger              *slog.Logger
+	ledger              store.IMessageExclusionLedger
+	appleFilterValues   map[string]int
+	blockedAppleSenders map[string]string
 }
 
 // Run imports the iMessage archive into st and returns the recorded summary.
@@ -47,6 +56,34 @@ type Options struct {
 func Run(ctx context.Context, st *store.Store, opts Options) (store.IngestRun, error) {
 	if err := ValidateExclusions(opts.Exclusions); err != nil {
 		return store.IngestRun{}, err
+	}
+	if (opts.RequireAppleFilter || len(opts.ExcludedAppleSenders) > 0) &&
+		(opts.GUIDHTMLRoot == "" || opts.AppleFilterDB == "") {
+		return store.IngestRun{}, fmt.Errorf("Apple filter and sender exclusions require --guid-html-root and --apple-filter-db from the same source snapshot")
+	}
+	if opts.AppleFilterDB != "" {
+		if opts.GUIDHTMLRoot == "" {
+			return store.IngestRun{}, fmt.Errorf("--apple-filter-db requires --guid-html-root")
+		}
+		values, hasColumn, err := loadAppleFilterValues(ctx, opts.AppleFilterDB)
+		if err != nil {
+			return store.IngestRun{}, err
+		}
+		opts.appleFilterValues = values
+		if len(opts.ExcludedAppleSenders) > 0 {
+			blocked, err := loadBlockedAppleSenders(ctx, opts.AppleFilterDB, opts.ExcludedAppleSenders)
+			if err != nil {
+				return store.IngestRun{}, err
+			}
+			opts.blockedAppleSenders = blocked
+		}
+		if !hasColumn {
+			log := opts.Logger
+			if log == nil {
+				log = slog.Default()
+			}
+			log.Warn("Apple source has no chat.is_filtered column; native filter exclusion unavailable for this snapshot")
+		}
 	}
 	ledger, err := st.LoadIMessageExclusionLedger(ctx)
 	if err != nil {
@@ -227,6 +264,26 @@ func importConversation(
 	msgs, ledgerExcluded := filterLedgerExcluded(msgs, opts.ledger)
 	if ledgerExcluded > 0 {
 		log.Info("excluded previously removed imessage messages", "conversation", name, "count", ledgerExcluded)
+	}
+	if opts.blockedAppleSenders != nil {
+		var blocked int
+		msgs, blocked, err = filterBlockedAppleSenders(ctx, st, msgs, opts.blockedAppleSenders)
+		if err != nil {
+			return false, 0, skips, err
+		}
+		if blocked > 0 {
+			log.Info("excluded messages by Apple sender handle", "conversation", name, "count", blocked)
+		}
+	}
+	if opts.appleFilterValues != nil {
+		var filtered int
+		msgs, filtered, err = filterAppleValues(ctx, st, msgs, opts.appleFilterValues)
+		if err != nil {
+			return false, 0, skips, err
+		}
+		if filtered > 0 {
+			log.Info("excluded messages by Apple filter value", "conversation", name, "count", filtered)
+		}
 	}
 	if len(msgs) == 0 && convID == 0 {
 		// A wholly excluded new transcript should not leave an empty thread in

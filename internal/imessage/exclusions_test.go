@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/joestump/msgbrowse/internal/config"
 	"github.com/joestump/msgbrowse/internal/signal"
@@ -185,5 +186,27 @@ func TestLedgerUsesGUIDBeforeHash(t *testing.T) {
 	kept, removed := filterLedgerExcluded(msgs, ledger)
 	if removed != 1 || len(kept) != 1 || kept[0].SourceGUID != "different" {
 		t.Fatalf("ledger suppressed a distinct Apple GUID: removed=%d kept=%+v", removed, kept)
+	}
+}
+
+func TestLedgerContentFingerprintAcrossRenamedTXT(t *testing.T) {
+	when := time.Unix(1_730_000_000, 0)
+	removed := signal.Message{Conversation: "orphaned", Sender: "Unknown", Body: "Synthetic notice", Timestamp: when}
+	ledger := store.IMessageExclusionLedger{
+		ContentFingerprints: map[string]struct{}{contentExclusionFingerprint(&removed): {}},
+	}
+	renamed := removed
+	renamed.Conversation = "Renamed conversation"
+	renamed.Sender = "Changed display name"
+	other := renamed
+	other.Timestamp = when.Add(time.Second)
+	kept, count := filterLedgerExcluded([]signal.Message{renamed, other}, ledger)
+	if count != 1 || len(kept) != 1 || !kept[0].Timestamp.Equal(other.Timestamp) {
+		t.Fatalf("renamed TXT exclusion: removed=%d kept=%+v", count, kept)
+	}
+	renamed.SourceGUID = "different-apple-message"
+	kept, count = filterLedgerExcluded([]signal.Message{renamed}, ledger)
+	if count != 0 || len(kept) != 1 {
+		t.Fatalf("fingerprint suppressed a distinct Apple GUID: removed=%d", count)
 	}
 }

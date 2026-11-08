@@ -724,7 +724,7 @@ func TestThemeStillSelfHosted(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	rec := get(t, srv, "/")
 	body := rec.Body.String()
-	for _, src := range []string{"/static/theme.js", "/static/sidebar-toggle.js", "/static/sidebar.js", "/static/shell.js", "/static/htmx.min.js"} {
+	for _, src := range []string{"/static/theme.js", "/static/sidebar-toggle.js", "/static/sidebar.js?v=2", "/static/shell.js", "/static/htmx.min.js"} {
 		if !contains(body, `src="`+src+`"`) {
 			t.Errorf("page missing self-hosted script %q", src)
 		}

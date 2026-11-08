@@ -38,6 +38,38 @@ type ConversationSummary struct {
 	Identifiers []ContactIdentifier
 }
 
+// OrphanedSummary describes the mixed iMessage bucket without reading message
+// bodies or loading the full sidebar list.
+type OrphanedSummary struct {
+	ConversationID int64
+	Messages       int
+	NamedMessages  int
+	NamedSenders   int
+	OwnerMessages  int
+}
+
+// IMessageOrphanedSummary returns the current mixed-bucket counts, if present.
+func (s *Store) IMessageOrphanedSummary(ctx context.Context) (*OrphanedSummary, error) {
+	var summary OrphanedSummary
+	err := s.db.QueryRowContext(ctx, `
+SELECT c.id, COUNT(m.id),
+       COUNT(CASE WHEN m.sender <> 'Me' THEN m.id END),
+       COUNT(DISTINCT CASE WHEN m.sender <> 'Me' THEN m.sender END),
+       COUNT(CASE WHEN m.sender = 'Me' THEN m.id END)
+FROM conversations c
+LEFT JOIN messages m ON m.conversation_id = c.id
+WHERE c.source = 'imessage' AND c.name = 'orphaned'
+GROUP BY c.id`).Scan(&summary.ConversationID, &summary.Messages,
+		&summary.NamedMessages, &summary.NamedSenders, &summary.OwnerMessages)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("iMessage orphaned summary: %w", err)
+	}
+	return &summary, nil
+}
+
 // MessageView is a single message rendered for the transcript, with its
 // attachments and links attached. ID is the internal rowid (cursor for
 // pagination and context lookups); Hash is the stable public identifier.

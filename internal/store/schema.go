@@ -6,7 +6,7 @@ import "context"
 // `user_version` pragma. On Open, the migrations runner brings any older
 // database forward to this version. Bump it and append a migration whenever the
 // schema changes.
-const schemaVersion = 28
+const schemaVersion = 29
 
 // SchemaVersion returns the schema revision this binary expects (and migrates a
 // database forward to on Open). Read-only callers — notably `msgbrowse doctor` —
@@ -67,6 +67,7 @@ var migrations = []string{
 	26: schemaV26,
 	27: schemaV27,
 	28: schemaV28,
+	29: schemaV29,
 }
 
 // schemaV1 is the initial Signal-only schema. It is preserved verbatim so a
@@ -1194,4 +1195,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_excluded_guid
     ON imessage_excluded_messages(source_guid) WHERE source_guid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_imessage_excluded_hash
     ON imessage_excluded_messages(message_hash);
+`
+
+// schemaV29 rejects any insertion whose exact hash or Apple GUID was removed
+// at the owner's direction. This also protects import-only legacy sources
+// whose importers do not load the iMessage exclusion ledger themselves.
+const schemaV29 = `
+CREATE TRIGGER IF NOT EXISTS trg_messages_owner_exclusion
+BEFORE INSERT ON messages
+WHEN EXISTS (
+    SELECT 1 FROM imessage_excluded_messages e
+    WHERE e.message_hash = NEW.hash
+       OR (NEW.source = 'imessage' AND NEW.source_guid IS NOT NULL
+           AND e.source_guid = NEW.source_guid)
+)
+BEGIN
+    SELECT RAISE(ABORT, 'owner-excluded message');
+END;
 `

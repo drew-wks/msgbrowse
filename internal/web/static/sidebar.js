@@ -1,32 +1,50 @@
 // Live "Filter conversations" box for the msgbrowse sidebar. Self-hosted (served
 // from /static under script-src 'self') so it runs under the strict CSP — no
 // inline handlers. As the user types, it shows only the conversation rows whose
-// (humanized) name contains the query, case-insensitively, across BOTH the
+// (humanized) name contains the query, case-insensitively, and whose latest
+// message date is within the optional From/To range, across BOTH the
 // PINNED and CONVERSATIONS sections, reveals a small empty-state line when
 // nothing matches, and hides the PINNED group header when none of its rows match
 // (SPEC-0006 REQ-0006-003 / REQ-0006-010).
 (function () {
   "use strict";
 
-  // The one live filter binding. #sidebar-filter persists across OOB row swaps
+  // The live filter bindings persist across OOB row swaps
   // (only the lists are replaced), so every re-init targets the SAME input —
   // without detaching the previous handler first, each pin/import would stack
   // another listener closed over a stale row list. Held at module scope so
   // initFilter can unbind before rebinding; on htmx:historyRestore the input
   // element itself is replaced and the removeEventListener is a harmless no-op.
-  var filterInput = null;
+  var filterInputs = [];
   var filterHandler = null;
 
   function initFilter() {
     var input = document.getElementById("sidebar-filter");
+    var fromInput = document.getElementById("sidebar-date-from");
+    var toInput = document.getElementById("sidebar-date-to");
     if (!input) return;
+
+    // Default the upper bound to today's local date once per DOM input. Keep
+    // a user-cleared or edited value through subsequent sidebar row swaps.
+    if (toInput && !toInput.dataset.defaultApplied) {
+      if (!toInput.value) {
+        var today = new Date();
+        toInput.value = String(today.getFullYear()) + "-" +
+          String(today.getMonth() + 1).padStart(2, "0") + "-" +
+          String(today.getDate()).padStart(2, "0");
+      }
+      toInput.dataset.defaultApplied = "true";
+    }
 
     // Idempotent re-init: drop the previous binding (and its captured rows)
     // before the early returns, so a re-init over an emptied list still
     // detaches the stale handler.
-    if (filterInput && filterHandler) {
-      filterInput.removeEventListener("input", filterHandler);
-      filterInput = null;
+    if (filterHandler) {
+      for (var bound = 0; bound < filterInputs.length; bound++) {
+        filterInputs[bound].removeEventListener("input", filterHandler);
+        filterInputs[bound].removeEventListener("change", filterHandler);
+      }
+      filterInputs = [];
       filterHandler = null;
     }
 
@@ -40,8 +58,11 @@
     // rebuilt whenever initFilter re-runs (htmx:historyRestore re-init below
     // keeps it in sync with a restored DOM).
     var names = new Array(items.length);
+    var dates = new Array(items.length);
     for (var i = 0; i < items.length; i++) {
       names[i] = (items[i].getAttribute("data-name") || "").toLowerCase();
+      var time = items[i].querySelector(".conv-last-date");
+      dates[i] = time ? time.getAttribute("datetime") || "" : "";
     }
 
     var empty = document.querySelector(".sidebar-empty");
@@ -66,9 +87,13 @@
 
     function apply() {
       var q = input.value.trim().toLowerCase();
+      var from = fromInput ? fromInput.value : "";
+      var to = toInput ? toInput.value : "";
       var shown = 0;
       for (var i = 0; i < items.length; i++) {
-        var match = q === "" || names[i].indexOf(q) !== -1;
+        var match = (q === "" || names[i].indexOf(q) !== -1) &&
+          (!from || (dates[i] && dates[i] >= from)) &&
+          (!to || (dates[i] && dates[i] <= to));
         setHidden(items[i], !match);
         if (match) shown++;
       }
@@ -95,8 +120,13 @@
       });
     }
 
-    input.addEventListener("input", schedule);
-    filterInput = input;
+    filterInputs = [input];
+    if (fromInput) filterInputs.push(fromInput);
+    if (toInput) filterInputs.push(toInput);
+    for (var bound = 0; bound < filterInputs.length; bound++) {
+      filterInputs[bound].addEventListener("input", schedule);
+      filterInputs[bound].addEventListener("change", schedule);
+    }
     filterHandler = schedule;
     apply();
   }

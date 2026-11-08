@@ -161,6 +161,7 @@ type indexData struct {
 	// exactly what a full load does.
 	OnThisDay onThisDayCard
 	JumpBack  []jumpBackItem
+	Orphaned  *store.OrphanedSummary
 	// Providers is the per-provider freshness breakdown (issue #1): counts +
 	// last-synced stamp per source, beside the global strip above.
 	Providers []providerStat
@@ -287,6 +288,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, err)
 		return
 	}
+	orphaned, err := s.store.IMessageOrphanedSummary(ctx)
+	if err != nil {
+		s.serverError(w, err)
+		return
+	}
 	// The Overview consolidation (issue #1): per-provider freshness and the
 	// semantic-index status ride every home render — full and boosted alike
 	// (they live inside #main-content); all are cheap aggregates, so the
@@ -310,6 +316,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		HasArchive:     convCount > 0,
 		OnThisDay:      onThisDay,
 		JumpBack:       jumpBack,
+		Orphaned:       orphaned,
 		Providers:      providers,
 		Embedding:      embedding,
 		MCPEndpointURL: endpoint,
