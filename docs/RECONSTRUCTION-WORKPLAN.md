@@ -373,20 +373,32 @@ network iPhone backups were already checked against the larger prior gap.
 
 A targeted follow-up on the 2025–2026 subset found **68** missing GUIDs:
 **43** from 2025 (31 visible, 12 hidden) and **25** from 2026 (three visible,
-22 hidden). The October 18, 2026 iPhone backup has **zero matching files**:
+22 hidden). An exact attachment-GUID scan of the October 18, 2026 iPhone
+backup has **zero matching files**:
 47 GUIDs are absent from its attachment table, 20 point to transient
 `~/tmp/` paths that are not backed up, and one has no path. The live Mac has
-no file for any of the 68; 50 are absent from its attachment table, 17 point
-to absent files, and one has no path. In particular, 33 of the 34 visible
-GUIDs are absent from the live Mac attachment table. Four live rows contain
-an iCloud record identifier, which is metadata rather than proof that the
-bytes remain downloadable. A private, content-free GUID-level report is at
+no exact-GUID file for any of the 68; 50 are absent from its attachment
+table, 17 point to absent files, and one has no path. **Thirty of the 34
+visible IDs are synthetic `at_` IDs**, so a GUID-only lookup overstates the
+actual byte gap. A message-GUID comparison found four native-GUID gaps whose
+messages each have one other retained same-MIME attachment; those four files
+passed SHA-256 checks. One synthetic visible gap has a live Mac attachment
+row with an iCloud record identifier but no local file. The owner located it
+on the iPhone, but an attempted download returned “Unable to Download Item.”
+No bytes were recovered; the cause is unknown. The owner does not need this
+image, so it remains an accepted unrecovered gap. The other 29 synthetic
+visible source messages are absent from the live Mac database.
+A message-GUID scan of the October 2026 backup found one present file among
+the 34 visible gaps, already retained for its message. A private,
+content-free exact-GUID report is at
 `reconstruction/2026-11-08-network-mac-attachments/recent-gap-audit.json`.
 
-Next reconcile the 363 remaining GUIDs against any newly mounted source media
-or iCloud downloads and import only exact owner-eligible matches. Hold the
-milestone full backup until those checks settle; KINGSTON remains
-write-protected by Drew's explicit instruction.
+Drew elected to stop active recovery of the remaining attachment gaps after
+an iPhone download attempt for one visible item failed. Preserve the missing
+observations and any later exact owner-eligible bytes, but do not hold the
+milestone full backup for further attachment hunting. A later historical
+source can still be compared for overlapping messages and media. KINGSTON
+remains write-protected by Drew's explicit instruction.
 
 The current Apple-filter check removed one exact screenshot-verified Spam
 message and recorded four unarchived GUID guards. A live read-only scan of

@@ -1827,15 +1827,27 @@ safe on attachment-completeness grounds. No current-state full backup and
 restore drill has been completed.
 
 A targeted check of the **68** remaining GUIDs dated 2025–2026 found 34
-visible attachments and 34 hidden payloads. The October 18, 2026 iPhone
-backup has no matching file: 47 GUIDs are absent from its attachment table,
-20 refer to transient `~/tmp/` paths without backed-up files, and one has no
-path. The live Mac likewise has no file; 50 GUIDs are absent from its
-attachment table, 17 point to absent files, and one has no path. Of the 34
-visible attachments, 33 are absent from the live Mac table. Four live rows
-have an iCloud record identifier, but that metadata does not establish that
-iCloud still has the bytes. A private metadata-only audit records the exact
-GUIDs and statuses.
+visible attachments and 34 hidden payloads. An exact attachment-GUID lookup
+found no matching file in the October 18, 2026 iPhone backup or live Mac. The
+backup has 47 GUIDs absent from its attachment table, 20 transient `~/tmp/`
+paths without backed-up files, and one without a path. The live Mac has 50
+GUIDs absent from its attachment table, 17 paths without files, and one
+without a path. These are exact-GUID results, not proof that the message has
+no alternate attachment representation: **30 of the 34 visible IDs are
+synthetic `at_` IDs** created from TXT observations. A message-GUID audit
+found that four native-GUID gaps are on messages with one other retained,
+same-MIME attachment; those four permanent files passed SHA-256 checks. One
+synthetic visible gap remains in the live Mac database with an iCloud record
+identifier but no local file. The owner located that attachment on the iPhone;
+an attempted download returned “Unable to Download Item.” This confirms no
+bytes were recovered in that attempt, but does not establish why the download
+failed. The owner does not need this particular image, so it is an accepted
+unrecovered gap rather than an active recovery target. The other 29 synthetic
+visible source messages are absent from the live Mac database. A message-GUID
+scan of the October 2026 backup found only one present file among the 34
+visible gaps, and it
+belongs to one of the four messages whose bytes are already retained. A
+private metadata-only audit records the original exact-GUID statuses.
 
 ## Implementation status
 
