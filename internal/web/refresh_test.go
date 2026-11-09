@@ -237,6 +237,25 @@ func TestSetupPageRendersPerSourceRefreshWhenEnabled(t *testing.T) {
 	}
 }
 
+// TestHomeUpdateDatabaseButton exercises the visible one-click entry point and
+// its existing same-origin, token-protected Refresh route.
+func TestHomeUpdateDatabaseButton(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	fe := &fakeEnabler{progress: onboard.Progress{Phase: onboard.PhaseExporting, Message: "Exporting iMessage…"}}
+	srv.SetEnabler(fe)
+	body := get(t, srv, "/").Body.String()
+	for _, want := range []string{"Update database", `hx-post="/setup/refresh"`, `"source":"imessage"`, `id="setup-progress-imessage"`} {
+		if !contains(body, want) {
+			t.Fatalf("home update button missing %q", want)
+		}
+	}
+	tok := mintToken(t, srv)
+	rec := enablePOST(t, srv, "/setup/refresh", selfOrigin, tok, source.IMessage)
+	if rec.Code != http.StatusOK || fe.refreshCount() != 1 {
+		t.Fatalf("home update route: status=%d refreshes=%d", rec.Code, fe.refreshCount())
+	}
+}
+
 // TestSetupPageHidesRefreshWhenNoneEnabled: with no source Enabled, no per-source
 // Refresh renders.
 func TestSetupPageHidesRefreshWhenNoneEnabled(t *testing.T) {

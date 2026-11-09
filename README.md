@@ -326,6 +326,33 @@ Create a [backup](docs/ARCHITECTURE.md#data-model-and-storage) with
 `./bin/msgbrowse --data-dir "$DATA_DIR" backups create`; verify a restore on a
 separate copy before considering any deletion from Apple Messages or iCloud.
 
+### Update the local archive from this Mac
+
+Open msgbrowse and click **Update database** on Home (also available in
+**Settings → Providers → iMessage**). The manual update reads the Messages
+database belonging to the Mac user running msgbrowse; it does not connect to
+iCloud directly or pull from other devices. Messages must first sync or download
+to this Mac, and the app or terminal running msgbrowse needs Full Disk Access.
+The configured `imessage-exporter` binary must be available through its explicit
+path or `PATH`.
+
+Each click makes a consistent, read-only copy of that Mac's `chat.db`, exports
+from the earlier of one year ago or 30 days before the latest archived Apple
+message through today as paired TXT and HTML, and checks Apple's
+filter metadata from the same copy. It then appends new message GUIDs, copies
+available attachments and URL preview images into permanent storage, and
+discards the temporary export. Rechecking the overlap lets late-downloaded
+attachments be retained; previously imported messages are not duplicated or
+deleted. The exporter's mixed `orphaned` transcript is held out of automatic
+updates because it combines unrelated senders. The button reports new-message
+and attachment-link counts when it finishes. Missing or ambiguous preview
+files remain gaps; the update cannot obtain bytes absent from the Mac.
+
+The update does **not** create an archive backup. Back up the SQLite database
+and permanent media separately before relying on this as your only copy. On a
+different Mac, the button reads that Mac's local Messages database and adds
+only what its source supplies; it cannot reach another device's local-only data.
+
 ### Reconstruct history from overlapping backups
 
 For multiple iPhone backups or copied Mac databases, use the GUID-aware
@@ -430,8 +457,8 @@ pass `--imessage-exporter-bin /absolute/path/to/imessage-exporter` after
 `export` to use a specific binary. It invokes `-f txt -c clone -o "$EXPORT_DIR"`
 and preserves legacy attachment references before replacing export files.
 
-Alternatively, start `serve`, open **Settings → Providers**, and Enable or
-Refresh iMessage. The CLI server finds the exporter on `PATH` or through
+Alternatively, start `serve`, open **Settings → Providers**, and Enable iMessage
+or click **Update database**. The CLI server finds the exporter on `PATH` or through
 `imessage_exporter_bin`; the desktop app uses its bundled exporter. Providers
 exports to app-managed staging, adopts it at `<data-dir>/archives/imessage` on
 success, then imports it. The Providers export directory is also replaceable;

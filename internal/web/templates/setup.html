@@ -266,15 +266,15 @@
      the incremental importer (SPEC-0013 REQ "Refresh"). */}}
 {{define "setup-refresh-button"}}
   {{- if .EnableAvailable}}
-  <button type="button" class="setup-iconbtn"
+  <button type="button" class="{{if eq .Source "imessage"}}setup-btn{{else}}setup-iconbtn{{end}}"
           hx-post="/setup/refresh"
           hx-vals='{"source": "{{.Source}}"}'
           hx-headers='{"X-Setup-Token": "{{.Token}}"}'
           hx-target="#setup-progress-{{.Source}}"
           hx-swap="innerHTML"
           hx-disabled-elt="this"
-          title="Refresh {{.Label}}"
-          aria-label="Refresh {{.Label}}">{{template "icon-refresh" $}}</button>
+          title="{{if eq .Source "imessage"}}Update database from this Mac{{else}}Refresh {{.Label}}{{end}}"
+          aria-label="{{if eq .Source "imessage"}}Update database from this Mac{{else}}Refresh {{.Label}}{{end}}">{{if eq .Source "imessage"}}Update database{{else}}{{template "icon-refresh" $}}{{end}}</button>
   {{- else}}
   <button type="button" class="setup-iconbtn" disabled aria-disabled="true"
           title="Refreshing needs the desktop app with its bundled exporters, or a configured exporter path"

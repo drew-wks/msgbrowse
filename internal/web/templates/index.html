@@ -27,6 +27,25 @@
            renders can skip the sidebar listing (REQ-0008-006). */}}
       {{template "hud" .ArchiveHUD}}
 
+      <div class="home-card" id="imessage-update">
+        <div class="home-card-label">iMessage archive</div>
+        <p>Bring in recent Messages from this Mac, including available attachments. Existing archived messages stay in place.</p>
+        {{if .UpdateAvailable}}
+        <div class="home-card-actions">
+          <button type="button" class="setup-btn"
+                  hx-post="/setup/refresh"
+                  hx-vals='{"source":"imessage"}'
+                  hx-headers='{"X-Setup-Token":"{{.SetupToken}}"}'
+                  hx-target="#setup-progress-imessage"
+                  hx-swap="innerHTML"
+                  hx-disabled-elt="this">Update database</button>
+        </div>
+        <div id="setup-progress-imessage" aria-live="polite"></div>
+        {{else}}
+        <p class="status-note">Updating requires a local iMessage exporter. <a href="/providers">Check Providers</a>.</p>
+        {{end}}
+      </div>
+
       {{if and .Orphaned .Orphaned.Messages}}
       <div class="home-card" id="orphaned-summary">
         <div class="home-card-label">Orphaned iMessages</div>

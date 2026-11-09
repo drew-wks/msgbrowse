@@ -177,11 +177,12 @@ type indexData struct {
 	// the shared semantic_index_card define (#224). Home sets IndexAvailable so
 	// the card body renders; the rest stay zero so the Build/Reset controls and
 	// run history are absent on Home (they live on Status).
-	IndexAvailable bool
-	IndexRunning   bool
-	IndexResult    string
-	History        []pipelineRunView
-	SetupToken     string
+	IndexAvailable  bool
+	IndexRunning    bool
+	IndexResult     string
+	History         []pipelineRunView
+	SetupToken      string
+	UpdateAvailable bool
 }
 
 type conversationData struct {
@@ -311,22 +312,23 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// Home is the Messages surface: the header's Messages tab reads active.
 	base.NavTab = navTabMessages
 	data := indexData{
-		baseData:       base,
-		ArchiveHUD:     archiveHUD(convCount, base.TotalMessages, newest, ""),
-		HasArchive:     convCount > 0,
-		OnThisDay:      onThisDay,
-		JumpBack:       jumpBack,
-		Orphaned:       orphaned,
-		Providers:      providers,
-		Embedding:      embedding,
-		MCPEndpointURL: endpoint,
-		MCPConfigJSON:  mcp.ClientConfigJSON(endpoint),
-		MCPAddCommand:  mcp.ClaudeMCPAddCommand(endpoint),
-		IndexAvailable: true,
+		baseData:        base,
+		ArchiveHUD:      archiveHUD(convCount, base.TotalMessages, newest, ""),
+		HasArchive:      convCount > 0,
+		OnThisDay:       onThisDay,
+		JumpBack:        jumpBack,
+		Orphaned:        orphaned,
+		Providers:       providers,
+		Embedding:       embedding,
+		MCPEndpointURL:  endpoint,
+		MCPConfigJSON:   mcp.ClientConfigJSON(endpoint),
+		MCPAddCommand:   mcp.ClaudeMCPAddCommand(endpoint),
+		IndexAvailable:  true,
+		UpdateAvailable: s.enabler != nil,
 	}
 	// The Build / Reset forms inside semantic_index_card are privileged POSTs:
 	// arm them with a live token, same as the Status page (#224).
-	if s.indexer != nil {
+	if s.indexer != nil || data.UpdateAvailable {
 		tok, err := s.setupTokens.mint()
 		if err != nil {
 			s.serverError(w, err)

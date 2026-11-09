@@ -53,9 +53,10 @@ func Build(cfg *config.Config, st *store.Store, resolver onboard.ToolResolver, l
 		log = slog.Default()
 	}
 	return onboard.NewRunner(onboard.Config{
-		Resolver: resolver,
-		Exec:     ExecRunner,
-		Importer: &storeImporter{st: st, cfg: cfg, log: log},
+		Resolver:        resolver,
+		Exec:            ExecRunner,
+		Importer:        &storeImporter{st: st, cfg: cfg, log: log},
+		IMessageUpdater: &localIMessageUpdater{st: st, cfg: cfg, log: log},
 		// The detected live-source resolver threads WhatsApp's container DB + media
 		// dir into wtsexporter's iOS-mode argv (issue #150). It is HOME-rooted like
 		// the /setup detector, so serve and desktop resolve the same paths; on a

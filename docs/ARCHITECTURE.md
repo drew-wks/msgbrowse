@@ -64,6 +64,21 @@ export can omit a message deleted from Apple Messages. The importer treats
 that omission as absent input for the current pass, not as an instruction to
 delete the already archived row or attachment bytes.
 
+The Home and Providers **Update database** control is the manual local-Mac
+refresh path. It creates a SQLite-consistent, read-only `chat.db` copy under a
+private temporary directory, exports from the earlier of one year ago or 30
+days before the latest archived Apple message into paired
+TXT/HTML from that copy, and supplies that exact copy to the GUID and Apple
+filter checks. It excludes the exporter's mixed `orphaned` transcript from
+automatic ingestion, then runs the existing append-only iMessage importer,
+native attachment catalog, and scoped URL-preview retention. Temporary export
+files are removed after the run; SQLite rows and permanent media remain. A
+repeat scan may read overlapping source data, but GUID identity prevents
+duplicate archive rows. The button reads the Messages database of the Mac
+hosting the server; it does not enumerate iCloud or other devices directly.
+Unavailable source attachment bytes and ambiguous preview matches remain
+reported gaps. The update does not automatically create a full backup.
+
 Optional iMessage exclusion rules run after TXT parsing and before attachment
 retention and `AppendIMessageMessages`. They may omit four- to six-digit sender
 addresses (including exporter-added names in parentheses), `(smsfp)` and
@@ -1878,6 +1893,7 @@ transport for part of the first sample.
 | iMessage text export/import | CLI invokes copy-mode exporter; parser imports flat text | Reuse with format validation | Implemented |
 | Unchanged-export skip | Content hash; `--full` reparses and rechecks media | Keep safe optimization | Tested (limited real sample) |
 | Independent repeat export | Fresh export matched original paths and bytes; forced reimport added zero messages | Avoid duplicates across export cycles | Tested (limited real sample; same exporter version and date window) |
+| Manual local-Mac update | Home/Providers button snapshots this Mac's `chat.db`, exports a rolling year as paired TXT/HTML, then runs GUID-aware import, native attachment retention, and URL-preview retention | Continue importing current local Messages without reviving removed rows or duplicating GUIDs | Tested (synthetic repeat/source-deletion fixture and two real button runs on 2026-11-09: 10 new messages, then zero) |
 | Append-only messages | TXT-only imports use content hashes; paired imports reuse Apple GUIDs and never delete omitted messages | Preserve existing content | Tested (seven-source isolated reconstruction) |
 | Conversation identity | First observed export filename labels a message; explicit source-metadata recovery moved 13,486 orphaned GUIDs to verified Apple chats without changing message IDs or media | Reconcile the remaining 1,197 orphaned records and split threads across snapshots | Partial |
 | Apple message GUID | Paired exporter 5.0.1 HTML supplies GUIDs; nullable unique `source_guid` persists them | Preserve identity across overlapping snapshots | Tested (seven-source isolated reconstruction; equal-date ties remain) |

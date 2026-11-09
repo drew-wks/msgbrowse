@@ -115,6 +115,11 @@ type ImportResult struct {
 	MessagesAdded int
 	// MessagesTotal is the store-wide message count after the import.
 	MessagesTotal int
+	// MediaRetained counts native Apple attachment links added during a paired
+	// local update. Existing links and bytes remain untouched.
+	MediaRetained int
+	// PreviewAssets counts URL card asset links added during that update.
+	PreviewAssets int
 	// MediaConverted / MediaSkipped / MediaFailed summarize the best-effort
 	// post-import image transcode (HEIC/TIFF → cached JPEG) the Importer runs
 	// after loading the store — the same step `msgbrowse import` runs (issue
@@ -125,6 +130,15 @@ type ImportResult struct {
 	MediaConverted int
 	MediaSkipped   int
 	MediaFailed    int
+}
+
+// IMessageUpdater performs the special local iMessage refresh required by
+// GUID-aware archives. It snapshots Apple's database read-only, exports paired
+// formats, and imports them with the matching metadata. The Runner supplies its
+// resolved exporter, supervised subprocess, and progress callback.
+type IMessageUpdater interface {
+	Update(ctx context.Context, tool string, env []string, exec ExecRunner,
+		progress func(Phase, string)) (ImportResult, error)
 }
 
 // ToolResolver resolves the exporter executable for one source. The desktop

@@ -152,9 +152,10 @@ type job struct {
 // it holds a base context whose cancellation (via Shutdown) tears down every
 // in-flight job, the injected side-effect seams, and the guarded job registry.
 type Runner struct {
-	resolver ToolResolver
-	runExec  ExecRunner
-	importer Importer
+	resolver        ToolResolver
+	runExec         ExecRunner
+	importer        Importer
+	imessageUpdater IMessageUpdater
 	// sources resolves the detected LIVE source location (WhatsApp container DB +
 	// media dir) threaded into the export argv (issue #150). nil means "no source
 	// needs an explicit path" — the exporters read their own well-known dirs.
@@ -185,6 +186,9 @@ type Config struct {
 	Exec ExecRunner
 	// Importer imports an adopted managed root into the store. Required.
 	Importer Importer
+	// IMessageUpdater runs a GUID-paired, read-only local Messages refresh when
+	// iMessage is refreshed. Nil retains the generic exporter pipeline.
+	IMessageUpdater IMessageUpdater
 	// Sources optionally resolves the detected live source location (WhatsApp
 	// container DB + media dir) for the export argv (issue #150). nil is fine for
 	// sources whose exporter reads its own well-known directory (Signal/iMessage).
@@ -218,16 +222,17 @@ func NewRunner(cfg Config) (*Runner, error) {
 	}
 	base, stop := context.WithCancel(context.Background())
 	return &Runner{
-		resolver:   cfg.Resolver,
-		runExec:    cfg.Exec,
-		importer:   cfg.Importer,
-		sources:    cfg.Sources,
-		permission: cfg.Permission,
-		dataDir:    cfg.DataDir,
-		log:        log,
-		baseCtx:    base,
-		stop:       stop,
-		jobs:       make(map[string]*job),
+		resolver:        cfg.Resolver,
+		runExec:         cfg.Exec,
+		importer:        cfg.Importer,
+		imessageUpdater: cfg.IMessageUpdater,
+		sources:         cfg.Sources,
+		permission:      cfg.Permission,
+		dataDir:         cfg.DataDir,
+		log:             log,
+		baseCtx:         base,
+		stop:            stop,
+		jobs:            make(map[string]*job),
 	}, nil
 }
 
@@ -466,6 +471,23 @@ func (r *Runner) execute(jobCtx context.Context, src string, mode jobMode) {
 				fmt.Sprintf("%s needs macOS permission to read %s — grant access in System Settings, then try again", source.Label(src), resource))
 			return
 		}
+	}
+	if src == source.IMessage && mode == modeRefresh && r.imessageUpdater != nil {
+		r.update(src, PhaseExporting, "Copying this Mac's Messages database…", ImportResult{}, nil)
+		res, updateErr := r.imessageUpdater.Update(jobCtx, tool, env, r.runExec,
+			func(phase Phase, message string) { r.update(src, phase, message, ImportResult{}, nil) })
+		if updateErr != nil {
+			if r.cancelled(jobCtx) {
+				r.cancel(src)
+			} else {
+				r.fail(src, wrapSentinel(updateErr, ErrImportFailed), "iMessage update failed: "+updateErr.Error())
+			}
+			return
+		}
+		r.setLog(src, JobLog{Summary: res})
+		r.update(src, PhaseDone,
+			fmt.Sprintf("Updated iMessage — %d messages added, %d attachment links retained", res.MessagesAdded, res.MediaRetained), res, nil)
+		return
 	}
 
 	// 3. Export into a fresh staging dir beside the managed root.
