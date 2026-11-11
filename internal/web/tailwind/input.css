@@ -889,10 +889,11 @@ body {
   font-weight: 600;
   color: var(--color-base-content);
 }
-.conv-count {
+.conv-last-date {
   flex-shrink: 0;
-  font-size: 11px;
-  color: color-mix(in oklab, var(--color-base-content) 42%, transparent);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
 }
 .conv-preview {
   display: block;
@@ -904,8 +905,8 @@ body {
   color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
 }
 
-/* --- Avatars (monogram) + presence dots (REQ-0006-004) ------------------- */
-/* Colored circle, white 600-weight initials. The bg-*-500 class (avatarColor)
+/* --- Avatars (message count) + presence dots (REQ-0006-004) -------------- */
+/* Colored circle, white 600-weight count. The bg-*-500 class (avatarColor)
    carries the fill; this rule carries the shape/typography. */
 .avatar-mono {
   position: relative;
@@ -919,9 +920,12 @@ body {
   color: #fff;
   font-size: 12px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
   user-select: none;
 }
+.avatar-count-lg { font-size: 10px; }
+.avatar-count-xl { font-size: 9px; letter-spacing: -0.03em; }
 /* Presence dot: bottom-right, source-colored, 2px border matching the surface
    behind it (the sidebar is base-300). */
 .presence-dot {
