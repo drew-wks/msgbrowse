@@ -454,10 +454,42 @@ body {
    the base .drawer-side rules keep the fixed full-height overlay drawer.
    48rem is Tailwind's md breakpoint — keep in lockstep with the template's
    md:drawer-open. */
+.sidebar-resize-handle { display: none; }
 @media (min-width: 48rem) {
   .app-shell > .drawer-side {
     height: 100%;
     overflow-y: hidden;
+  }
+  .app-shell .app-sidebar {
+    position: relative;
+    width: var(--msgbrowse-sidebar-width, 20rem);
+  }
+  .sidebar-resize-handle {
+    display: block;
+    position: absolute;
+    z-index: 2;
+    inset-block: 0;
+    right: 0;
+    width: 8px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .sidebar-resize-handle::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    left: 3px;
+    width: 2px;
+    background: transparent;
+  }
+  .sidebar-resize-handle:hover::after,
+  .sidebar-resize-handle:focus-visible::after,
+  .sidebar-resize-handle.dragging::after {
+    background: var(--color-primary);
+  }
+  .sidebar-resize-handle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -1px;
   }
 }
 

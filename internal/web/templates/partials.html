@@ -20,6 +20,7 @@
   <script src="/static/theme.js"></script>
   <script src="/static/sidebar-toggle.js" defer></script>
   <script src="/static/sidebar.js" defer></script>
+  <script src="/static/sidebar-resize.js" defer></script>
   <script src="/static/shell.js" defer></script>
   <script src="/static/copy.js" defer></script>
   <script src="/static/setup.js" defer></script>
@@ -146,6 +147,7 @@
          is the flex-1 min-h-0 scroll area. */}}
     <aside class="app-sidebar w-80 h-full bg-base-300 border-r border-neutral flex flex-col"
            hx-boost="true" hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">
+      <div id="sidebar-resize" class="sidebar-resize-handle" role="separator" aria-label="Resize conversation sidebar" aria-orientation="vertical" aria-valuemin="240" aria-valuenow="320" tabindex="0"></div>
       {{/* Filter input — live-narrows the conversation list via sidebar.js
            (bound by id). First thing in the sidebar (#190): it reads as the
            lists' control, and the lists are all the sidebar carries. */}}
